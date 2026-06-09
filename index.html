@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="日本の商業印刷向けプリプレスPDF面付けツール">
+  <title>PDF 面付 Pro</title>
+  <link rel="stylesheet" href="./src/styles.css">
+  <script defer src="./vendor/pdf-lib.min.js"></script>
+  <script defer src="./src/app.js"></script>
+</head>
+<body>
+  <main class="app">
+    <section class="topbar">
+      <div>
+        <h1>PDF 面付 Pro</h1>
+        <p>日本の商業印刷向けプリプレス面付けツール</p>
+      </div>
+      <div class="status" id="engineStatus">PDFエンジン読込中</div>
+    </section>
+
+    <section class="workspace">
+      <aside class="panel controls">
+        <label class="upload">
+          <input id="pdfFile" type="file" accept="application/pdf">
+          <span>PDFを選択</span>
+          <strong id="fileName">未選択</strong>
+        </label>
+
+        <div class="tabs" role="tablist" aria-label="設定カテゴリ">
+          <button class="tab active" data-tab="job">仕事</button>
+          <button class="tab" data-tab="paper">用紙</button>
+          <button class="tab" data-tab="impose">面付</button>
+          <button class="tab" data-tab="marks">印刷</button>
+        </div>
+
+        <form id="settings">
+          <div class="tabpane active" data-pane="job">
+            <div class="field">
+              <label for="jobName">ジョブ名</label>
+              <input id="jobName" value="無題の面付ジョブ">
+            </div>
+            <div class="field">
+              <label>面付設定プリセット
+                <select id="impositionPreset">
+                  <option value="">プリセットを選択</option>
+                </select>
+              </label>
+            </div>
+            <div class="field preset-save">
+              <label>面付設定名<input id="impositionPresetName" placeholder="例: A4冊子 菊全 右綴じ"></label>
+              <div class="mini-actions">
+                <button id="saveImpositionPreset" type="button">現在の面付設定を保存</button>
+                <button id="deleteImpositionPreset" type="button">選択設定を削除</button>
+              </div>
+            </div>
+            <div class="field two">
+              <label>仕上り幅 mm<input id="trimW" type="number" value="210" step="0.1"></label>
+              <label>仕上り高 mm<input id="trimH" type="number" value="297" step="0.1"></label>
+            </div>
+            <div class="field two">
+              <label>塗り足し mm<input id="bleed" type="number" value="3" step="0.1"></label>
+              <label>安全余白 mm<input id="safeMargin" type="number" value="3" step="0.1"></label>
+            </div>
+            <div class="field two">
+              <label>綴じ方向
+                <select id="binding">
+                  <option value="right">右綴じ 縦組</option>
+                  <option value="left">左綴じ 横組</option>
+                  <option value="top">天綴じ</option>
+                </select>
+              </label>
+              <label>製本
+                <select id="product">
+                  <option value="saddle">中綴じ</option>
+                  <option value="perfect">無線綴じ</option>
+                  <option value="flat">端物・多面付け</option>
+                </select>
+              </label>
+            </div>
+            <div class="field two">
+              <label>総ページ補正
+                <select id="pagePolicy">
+                  <option value="pad">4の倍数まで白ページ追加</option>
+                  <option value="insert-duplex">2ページ余りは差し込み両面</option>
+                  <option value="strict">不足を警告のみ</option>
+                </select>
+              </label>
+              <label>ノンブル開始<input id="folioStart" type="number" value="1"></label>
+            </div>
+          </div>
+
+          <div class="tabpane" data-pane="paper">
+            <div class="field">
+              <label for="sheetPreset">刷版・紙取り寸法</label>
+              <select id="sheetPreset">
+                <option value="636x939">菊全判 636 x 939</option>
+                <option value="469x636">菊半裁 469 x 636</option>
+                <option value="788x1091">四六全判 788 x 1091</option>
+                <option value="545x788">四六半裁 545 x 788</option>
+                <option value="625x880">A列本判 625 x 880</option>
+                <option value="765x1085">B列本判 765 x 1085</option>
+                <option value="450x625">A列半裁 450 x 625</option>
+                <option value="542x765">B列半裁 542 x 765</option>
+                <option value="320x450">A3ノビ 320 x 450</option>
+                <option value="364x515">B3 364 x 515</option>
+                <option value="custom">カスタム</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="sheetOrientation">用紙方向</label>
+              <select id="sheetOrientation">
+                <option value="portrait">縦向き</option>
+                <option value="landscape">横向き 90度回転</option>
+              </select>
+            </div>
+            <div class="field two">
+              <label>紙幅 mm<input id="sheetW" type="number" value="636" step="0.1"></label>
+              <label>紙高 mm<input id="sheetH" type="number" value="939" step="0.1"></label>
+            </div>
+            <div class="field preset-save">
+              <label>マスタ用紙サイズ名<input id="sheetPresetName" placeholder="例: 自社CTP 1030x800"></label>
+              <div class="mini-actions">
+                <button id="saveSheetPreset" type="button">現在の用紙をプリセット保存</button>
+                <button id="deleteSheetPreset" type="button">選択プリセットを削除</button>
+              </div>
+            </div>
+            <div class="field two">
+              <label>くわえ mm<input id="gripper" type="number" value="12" step="0.1"></label>
+              <label>咥え尻余白 mm<input id="tail" type="number" value="8" step="0.1"></label>
+            </div>
+            <div class="field two">
+              <label>針側
+                <select id="guide">
+                  <option value="left">左針</option>
+                  <option value="right">右針</option>
+                </select>
+              </label>
+              <label>紙目
+                <select id="grain">
+                  <option value="long">縦目</option>
+                  <option value="short">横目</option>
+                </select>
+              </label>
+            </div>
+          </div>
+
+          <div class="tabpane" data-pane="impose">
+            <div class="field two">
+              <label>方式
+                <select id="mode">
+                  <option value="booklet">折丁 2面付け</option>
+                  <option value="nup">端物 多面付け</option>
+                </select>
+              </label>
+              <label>両面
+                <select id="duplex">
+                  <option value="work-and-turn">ドンテン</option>
+                  <option value="work-and-tumble">ドブ返し</option>
+                  <option value="sheetwise">表裏別版</option>
+                </select>
+              </label>
+            </div>
+            <div class="field two">
+              <label>横面数<input id="cols" type="number" value="2" min="1" max="12"></label>
+              <label>縦面数<input id="rows" type="number" value="1" min="1" max="12"></label>
+            </div>
+            <div class="field two">
+              <label>ドブ mm<input id="gutter" type="number" value="6" step="0.1"></label>
+              <label>背丁ドブ mm<input id="spineGutter" type="number" value="0" step="0.1"></label>
+            </div>
+            <div class="field two">
+              <label>束見込み mm<input id="creep" type="number" value="0" step="0.01"></label>
+              <label>折丁ページ数
+                <select id="signatureSize">
+                  <option value="4">4P</option>
+                  <option value="8">8P</option>
+                  <option value="16" selected>16P</option>
+                  <option value="32">32P</option>
+                </select>
+              </label>
+            </div>
+            <div class="field two">
+              <label>回転
+                <select id="rotation">
+                  <option value="auto">自動</option>
+                  <option value="0">0度</option>
+                  <option value="90">90度</option>
+                  <option value="180">180度</option>
+                  <option value="270">270度</option>
+                </select>
+              </label>
+              <label>ページ順
+                <select id="pageOrder">
+                  <option value="normal">正順</option>
+                  <option value="reverse">逆順</option>
+                  <option value="repeat">同一面反復</option>
+                </select>
+              </label>
+            </div>
+            <div class="field">
+              <label>差し込みページ配置
+                <select id="insertPosition">
+                  <option value="left">左ページ位置に合わせる</option>
+                  <option value="right">右ページ位置に合わせる</option>
+                </select>
+              </label>
+            </div>
+          </div>
+
+          <div class="tabpane" data-pane="marks">
+            <div class="checks">
+              <label><input id="cropMarks" type="checkbox" checked> 断裁トンボ</label>
+              <label><input id="foldMarks" type="checkbox" checked> 折りトンボ</label>
+              <label><input id="registerMarks" type="checkbox" checked> レジスターマーク</label>
+              <label><input id="colorBars" type="checkbox" checked> CMYKカラーバー</label>
+              <label><input id="slug" type="checkbox" checked> スラッグ情報</label>
+              <label><input id="mirrorBack" type="checkbox" checked> 裏面左右反転配置</label>
+            </div>
+            <div class="field">
+              <label>トンボ形式
+                <select id="cropMarkStyle">
+                  <option value="single">通常トンボ</option>
+                  <option value="japanese-double">日本式2重トンボ</option>
+                </select>
+              </label>
+            </div>
+            <div class="field two">
+              <label>マークオフセット mm<input id="markOffset" type="number" value="4" step="0.1"></label>
+              <label>線幅 pt<input id="markWeight" type="number" value="0.25" step="0.05"></label>
+            </div>
+            <div class="field two">
+              <label>カラーパッチ mm<input id="patchSize" type="number" value="5" step="0.1"></label>
+              <label>バー位置
+                <select id="barPosition">
+                  <option value="gripper">くわえ側</option>
+                  <option value="tail">咥え尻</option>
+                  <option value="both">両方</option>
+                </select>
+              </label>
+            </div>
+          </div>
+        </form>
+
+        <div class="actions">
+          <label class="save-option"><input id="chooseSaveLocation" type="checkbox" checked> 保存先を選択</label>
+          <button id="makePdf" class="primary" type="button" disabled>面付けPDF生成</button>
+          <button id="downloadTicket" type="button" disabled>ジョブチケット</button>
+        </div>
+      </aside>
+
+      <section class="stage">
+        <div class="previewbar">
+          <div>
+            <h2>プレビュー</h2>
+            <p id="summary">PDFを選択すると台割と刷り本の概要を表示します。</p>
+          </div>
+          <div class="badges" id="badges"></div>
+        </div>
+        <div class="sheet" id="sheetPreview" aria-label="面付けプレビュー">
+          <div class="sheet-inner" id="sheetInner"></div>
+        </div>
+        <section class="report">
+          <h2>プリフライト</h2>
+          <ul id="preflight"></ul>
+        </section>
+      </section>
+    </section>
+  </main>
+</body>
+</html>

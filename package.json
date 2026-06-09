@@ -1,0 +1,16 @@
+{
+  "name": "pdf-imposition-pro",
+  "version": "0.1.0",
+  "private": true,
+  "description": "日本の商業印刷向けプリプレスPDF面付けツール",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "preview": "vite preview --host 127.0.0.1",
+    "build": "vite build",
+    "check": "node --check src/app.js"
+  },
+  "devDependencies": {
+    "vite": "^5.4.0"
+  }
+}
