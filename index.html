@@ -206,6 +206,14 @@
                 </select>
               </label>
             </div>
+            <div class="field">
+              <label>差し込み対象ページ
+                <select id="insertPageSource">
+                  <option value="tail">末尾の2ページ</option>
+                  <option value="middle">本文中央の2ページ</option>
+                </select>
+              </label>
+            </div>
           </div>
 
           <div class="tabpane" data-pane="marks">
@@ -224,6 +232,54 @@
                   <option value="japanese-double">日本式2重トンボ</option>
                 </select>
               </label>
+            </div>
+            <div class="field two">
+              <label>トンボ色
+                <select id="markColor">
+                  <option value="registration">レジストレーションカラー</option>
+                  <option value="black">墨1色</option>
+                </select>
+              </label>
+              <label>ノンブル
+                <select id="folioPosition">
+                  <option value="bottom-left">左下</option>
+                  <option value="bottom-center">中央下</option>
+                  <option value="bottom-right">右下</option>
+                  <option value="top-left">左上</option>
+                  <option value="top-center">中央上</option>
+                  <option value="top-right">右上</option>
+                </select>
+              </label>
+            </div>
+            <div class="checks">
+              <label><input id="printFolios" type="checkbox"> ノンブルを出力</label>
+              <label><input id="folioHige" type="checkbox" checked> ヒゲを付ける</label>
+            </div>
+            <div class="field two">
+              <label>ノンブルサイズ pt<input id="folioSize" type="number" value="6" min="3" max="24" step="0.5"></label>
+              <label>ノンブルフォント
+                <select id="folioFont">
+                  <option value="helvetica">Helvetica</option>
+                  <option value="times">Times</option>
+                  <option value="courier">Courier</option>
+                </select>
+              </label>
+            </div>
+            <div class="field">
+              <label>ノンブル刷色
+                <select id="folioColor">
+                  <option value="black">墨1色</option>
+                  <option value="rich-black">リッチブラック</option>
+                  <option value="registration">レジストレーション</option>
+                  <option value="custom-cmyk">CMYK指定</option>
+                </select>
+              </label>
+            </div>
+            <div class="field four">
+              <label>C %<input id="folioC" type="number" value="0" min="0" max="100" step="1"></label>
+              <label>M %<input id="folioM" type="number" value="0" min="0" max="100" step="1"></label>
+              <label>Y %<input id="folioY" type="number" value="0" min="0" max="100" step="1"></label>
+              <label>K %<input id="folioK" type="number" value="100" min="0" max="100" step="1"></label>
             </div>
             <div class="field two">
               <label>マークオフセット mm<input id="markOffset" type="number" value="4" step="0.1"></label>
@@ -254,6 +310,12 @@
           <div>
             <h2>プレビュー</h2>
             <p id="summary">PDFを選択すると台割と刷り本の概要を表示します。</p>
+          </div>
+          <div class="preview-controls" aria-label="版面プレビュー切替">
+            <button id="previewPrev" type="button">前</button>
+            <label><span>版面</span><input id="previewPage" type="number" value="1" min="1"></label>
+            <span id="previewTotal">/ 1</span>
+            <button id="previewNext" type="button">次</button>
           </div>
           <div class="badges" id="badges"></div>
         </div>

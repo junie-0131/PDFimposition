@@ -173,6 +173,11 @@ h1 {
   gap: 10px;
 }
 
+.field.four {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
 label {
   display: grid;
   gap: 5px;
@@ -286,6 +291,30 @@ button:disabled {
   align-items: start;
 }
 
+.preview-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.preview-controls label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.preview-controls input {
+  width: 64px;
+}
+
+.preview-controls button {
+  padding: 7px 10px;
+  min-height: 34px;
+}
+
 .previewbar h2, .report h2 {
   font-size: 17px;
 }
@@ -340,6 +369,67 @@ button:disabled {
   display: block;
   color: var(--muted);
   font-weight: 600;
+}
+
+.pagebox-content {
+  display: inline-grid;
+  gap: 4px;
+}
+
+.gutter-mark {
+  position: absolute;
+  width: 0;
+  height: 7%;
+  border-left: 2px solid #1d4ed8;
+  transform: translateX(-1px);
+}
+
+.gutter-mark.top {
+  top: 2.4%;
+}
+
+.gutter-mark.bottom {
+  bottom: 2.4%;
+}
+
+.folio-preview {
+  position: absolute;
+  font-size: 10px;
+  font-weight: 700;
+  color: #b91c1c;
+  line-height: 1;
+}
+
+.folio-preview.bottom-left {
+  left: 8px;
+  bottom: 8px;
+}
+
+.folio-preview.bottom-center {
+  left: 50%;
+  bottom: 8px;
+  transform: translateX(-50%);
+}
+
+.folio-preview.bottom-right {
+  right: 8px;
+  bottom: 8px;
+}
+
+.folio-preview.top-left {
+  left: 8px;
+  top: 8px;
+}
+
+.folio-preview.top-center {
+  left: 50%;
+  top: 8px;
+  transform: translateX(-50%);
+}
+
+.folio-preview.top-right {
+  right: 8px;
+  top: 8px;
 }
 
 .mark {

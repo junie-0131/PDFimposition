@@ -5,6 +5,7 @@ const ptToMm = (pt) => pt * 25.4 / 72;
 let sourceBytes = null;
 let sourcePdf = null;
 let lastTicket = null;
+let previewIndex = 0;
 
 const CUSTOM_PRESET_PREFIX = "user:";
 const CUSTOM_PRESET_STORAGE = "pdf-imposition-sheet-presets";
@@ -29,7 +30,8 @@ const ids = [
   "pagePolicy", "folioStart", "sheetPreset", "sheetOrientation", "sheetW", "sheetH", "gripper",
   "tail", "guide", "grain", "mode", "duplex", "cols", "rows", "gutter",
   "spineGutter", "creep", "signatureSize", "rotation", "pageOrder",
-  "insertPosition", "cropMarks", "cropMarkStyle", "foldMarks", "registerMarks", "colorBars", "slug",
+  "insertPosition", "insertPageSource", "cropMarks", "cropMarkStyle", "markColor", "foldMarks", "registerMarks", "colorBars", "slug",
+  "printFolios", "folioPosition", "folioSize", "folioFont", "folioHige", "folioColor", "folioC", "folioM", "folioY", "folioK",
   "mirrorBack", "markOffset", "markWeight", "patchSize", "barPosition"
 ];
 
@@ -39,7 +41,7 @@ function readSettings() {
     const el = $(id);
     s[id] = el.type === "checkbox" ? el.checked : el.value;
   }
-  for (const id of ["trimW", "trimH", "bleed", "safeMargin", "folioStart", "sheetW", "sheetH", "gripper", "tail", "cols", "rows", "gutter", "spineGutter", "creep", "signatureSize", "markOffset", "markWeight", "patchSize"]) {
+  for (const id of ["trimW", "trimH", "bleed", "safeMargin", "folioStart", "sheetW", "sheetH", "gripper", "tail", "cols", "rows", "gutter", "spineGutter", "creep", "signatureSize", "markOffset", "markWeight", "patchSize", "folioSize", "folioC", "folioM", "folioY", "folioK"]) {
     s[id] = Number(s[id]);
   }
   return s;
@@ -269,21 +271,24 @@ function padPages(count, multiple) {
 }
 
 function makeBookletPlan(pageCount, settings) {
+  if (settings.product === "saddle") return makeSaddlePlan(pageCount, settings);
+
   const canInsertEvenRemainder = pageCount % 4 === 2;
   const canInsertOddWithBlank = pageCount % 4 === 1;
   const useInsertDuplex = settings.pagePolicy === "insert-duplex" && (canInsertEvenRemainder || canInsertOddWithBlank);
-  const insertPages = useInsertDuplex
-    ? canInsertOddWithBlank ? [pageCount, null] : [pageCount - 1, pageCount]
-    : [];
-  const bookletCount = useInsertDuplex
-    ? canInsertOddWithBlank ? pageCount - 1 : pageCount - 2
-    : pageCount;
-  const pages = Array.from({ length: bookletCount }, (_, i) => i + 1);
+  const sourcePages = Array.from({ length: pageCount }, (_, i) => i + 1);
+  const insertPages = useInsertDuplex ? selectedInsertPages(pageCount, settings) : [];
+  let pages = useInsertDuplex
+    ? sourcePages.filter(pageNo => !insertPages.includes(pageNo))
+    : sourcePages;
+  if (useInsertDuplex && canInsertOddWithBlank) {
+    pages = [...pages, null];
+  }
   if (settings.pagePolicy === "pad") {
     while (pages.length % 4 !== 0) pages.push(null);
   }
   const plan = [];
-  const sigSize = Math.max(4, Number(settings.signatureSize));
+  const sigSize = settings.product === "saddle" ? pages.length : Math.max(4, Number(settings.signatureSize));
   for (let start = 0; start < pages.length; start += sigSize) {
     const sig = pages.slice(start, start + sigSize);
     while (sig.length % 4 !== 0) sig.push(null);
@@ -306,10 +311,119 @@ function makeBookletPlan(pageCount, settings) {
   }
   if (useInsertDuplex) {
     const signature = plan.length ? Math.max(...plan.map(item => item.signature)) + 1 : 1;
-    plan.push({ side: "差込 表", signature, folio: 1, type: "insert-duplex", pages: [insertPages[0], insertPages[0]] });
-    plan.push({ side: "差込 裏", signature, folio: 1, type: "insert-duplex", pages: [insertPages[1], insertPages[1]] });
+    const spread = insertDuplexSpread(pageCount, insertPages, settings);
+    plan.push({ side: "差込 表", signature, folio: 1, type: "insert-duplex", pages: spread.front, rotations: spread.frontRotations });
+    plan.push({ side: "差込 裏", signature, folio: 1, type: "insert-duplex", pages: spread.back, rotations: spread.backRotations });
   }
   return plan;
+}
+
+function makeSaddlePlan(pageCount, settings) {
+  const plan = [];
+  const canInsertEvenRemainder = pageCount % 4 === 2;
+  const useInsertDuplex = settings.pagePolicy === "insert-duplex" && canInsertEvenRemainder;
+  const insertPair = useInsertDuplex ? middleInsertPages(pageCount) : [];
+  const paddedCount = useInsertDuplex
+    ? pageCount
+    : settings.pagePolicy === "pad"
+      ? nextMultiple(pageCount, 4)
+      : pageCount;
+  let low = 1;
+  let high = paddedCount;
+  let folio = 1;
+
+  while (low < high) {
+    if (useInsertDuplex && low === insertPair[0] && high === insertPair[1]) break;
+    const front = settings.binding === "right"
+      ? [pageOrBlank(low, pageCount), pageOrBlank(high, pageCount)]
+      : [pageOrBlank(high, pageCount), pageOrBlank(low, pageCount)];
+    const back = settings.binding === "right"
+      ? [pageOrBlank(high - 1, pageCount), pageOrBlank(low + 1, pageCount)]
+      : [pageOrBlank(low + 1, pageCount), pageOrBlank(high - 1, pageCount)];
+    plan.push({ side: "表", signature: 1, folio, pages: front });
+    plan.push({ side: "裏", signature: 1, folio, pages: back });
+    low += 2;
+    high -= 2;
+    folio += 1;
+  }
+
+  if (useInsertDuplex) {
+    const spread = saddleInsertDuplexSpread(insertPair, settings);
+    plan.push({
+      side: "差込 表",
+      signature: 2,
+      folio: 1,
+      type: "insert-duplex",
+      pages: spread.front,
+      rotations: spread.frontRotations
+    });
+    plan.push({
+      side: "差込 裏",
+      signature: 2,
+      folio: 1,
+      type: "insert-duplex",
+      pages: spread.back,
+      rotations: spread.backRotations
+    });
+  }
+
+  return plan;
+}
+
+function saddleInsertDuplexSpread(insertPair, settings) {
+  const [frontPage, backPage] = insertPair;
+  if (settings.binding === "right") {
+    return {
+      front: [frontPage, frontPage],
+      back: [backPage, backPage],
+      frontRotations: [0, 180],
+      backRotations: [180, 0]
+    };
+  }
+  return {
+    front: [frontPage, frontPage],
+    back: [backPage, backPage],
+    frontRotations: [180, 0],
+    backRotations: [0, 180]
+  };
+}
+
+function nextMultiple(value, multiple) {
+  return Math.ceil(value / multiple) * multiple;
+}
+
+function pageOrBlank(pageNo, pageCount) {
+  return pageNo >= 1 && pageNo <= pageCount ? pageNo : null;
+}
+
+function selectedInsertPages(pageCount, settings) {
+  return settings.insertPageSource === "middle"
+    ? middleInsertPages(pageCount)
+    : tailInsertPages(pageCount);
+}
+
+function tailInsertPages(pageCount) {
+  return pageCount % 4 === 1 ? [pageCount, null] : [pageCount - 1, pageCount];
+}
+
+function middleInsertPages(pageCount) {
+  const paddedCount = pageCount % 4 === 1 ? pageCount + 1 : pageCount;
+  const left = Math.floor(paddedCount / 2);
+  const right = left + 1;
+  return [left <= pageCount ? left : null, right <= pageCount ? right : null];
+}
+
+function insertDuplexSpread(pageCount, insertPages, settings) {
+  if (settings.insertPageSource !== "middle") {
+    return saddleInsertDuplexSpread(insertPages, settings);
+  }
+
+  return {
+    front: [insertPages[0], pageCount - 2],
+    back: [pageCount - 3, insertPages[1]],
+    frontRotations: [0, 180],
+    backRotations: [0, 180]
+  };
 }
 
 function makeNupPlan(pageCount, settings) {
@@ -336,8 +450,22 @@ function currentPlan() {
   return { settings, count, plan };
 }
 
+function updatePreviewControls(total) {
+  const pageInput = $("previewPage");
+  const totalLabel = $("previewTotal");
+  const prev = $("previewPrev");
+  const next = $("previewNext");
+  const max = Math.max(total, 1);
+  pageInput.max = String(max);
+  pageInput.value = String(Math.min(previewIndex + 1, max));
+  totalLabel.textContent = `/ ${max}`;
+  prev.disabled = previewIndex <= 0;
+  next.disabled = previewIndex >= max - 1;
+}
+
 function updatePreview() {
   const { settings, count, plan } = currentPlan();
+  previewIndex = Math.min(Math.max(previewIndex, 0), Math.max(plan.length - 1, 0));
   const sheet = $("sheetInner");
   sheet.innerHTML = "";
   sheet.style.aspectRatio = `${settings.sheetW} / ${settings.sheetH}`;
@@ -347,8 +475,8 @@ function updatePreview() {
   gripper.style.height = `${settings.gripper / settings.sheetH * 100}%`;
   sheet.appendChild(gripper);
 
-  const first = plan[0] || { pages: [] };
-  const boxes = layoutBoxes(settings, first);
+  const selected = plan[previewIndex] || { pages: [] };
+  const boxes = layoutBoxes(settings, selected);
   boxes.forEach((box, i) => {
     const div = document.createElement("div");
     div.className = "pagebox";
@@ -356,9 +484,26 @@ function updatePreview() {
     div.style.top = `${box.y / settings.sheetH * 100}%`;
     div.style.width = `${box.w / settings.sheetW * 100}%`;
     div.style.height = `${box.h / settings.sheetH * 100}%`;
-    div.innerHTML = `<span>${first.pages[i] ? `P${first.pages[i]}` : "白"}<small>${first.side || "表"} / ${i + 1}面</small></span>`;
+    const rotation = box.forceRotation ?? 0;
+    div.innerHTML = `<span class="pagebox-content" style="transform: rotate(${rotation}deg)">${selected.pages[i] ? `P${selected.pages[i]}` : "白"}<small>${selected.side || "表"} / ${i + 1}面 / ${rotation}°</small></span>`;
+    if (settings.printFolios && selected.pages[i]) {
+      const folio = document.createElement("span");
+      folio.className = `folio-preview ${settings.folioPosition}`;
+      folio.textContent = `P${selected.pages[i]}`;
+      div.appendChild(folio);
+    }
     sheet.appendChild(div);
   });
+
+  if (settings.cropMarks && settings.mode === "booklet" && boxes.length >= 2) {
+    const gutterX = (boxes[0].x + boxes[0].w + boxes[1].x) / 2;
+    for (const position of ["top", "bottom"]) {
+      const mark = document.createElement("div");
+      mark.className = `gutter-mark ${position}`;
+      mark.style.left = `${gutterX / settings.sheetW * 100}%`;
+      sheet.appendChild(mark);
+    }
+  }
 
   if (settings.foldMarks && settings.mode === "booklet") {
     const line = document.createElement("div");
@@ -372,8 +517,9 @@ function updatePreview() {
   const warnings = preflight(settings, count, plan);
   $("preflight").innerHTML = warnings.map(w => `<li class="${w.level === "warn" ? "warn" : ""}">${w.text}</li>`).join("");
   $("summary").textContent = count
-    ? `${count}ページ / ${settings.sheetW}x${settings.sheetH}mm / ${settings.mode === "booklet" ? "折丁2面付け" : `${settings.cols}x${settings.rows}多面付け`} / ${plan.length}版面`
+    ? `${count}ページ / ${settings.sheetW}x${settings.sheetH}mm / ${settings.mode === "booklet" ? "折丁2面付け" : `${settings.cols}x${settings.rows}多面付け`} / ${plan.length}版面 / 表示 ${previewIndex + 1}`
     : "PDFを選択すると台割と刷り本の概要を表示します。";
+  updatePreviewControls(plan.length);
   $("badges").innerHTML = [
     settings.binding === "right" ? "右綴じ" : settings.binding === "left" ? "左綴じ" : "天綴じ",
     settings.duplex,
@@ -400,12 +546,13 @@ function layoutBoxes(settings, side) {
     if (imposed.type === "insert-duplex") {
       const preferred = settings.insertPosition === "right" ? 1 : 0;
       const other = preferred === 0 ? 1 : 0;
+      const rotations = imposed.rotations || [];
       return [
-        { ...boxes[preferred], forceRotation: 0 },
-        { ...boxes[other], forceRotation: 180 }
+        { ...boxes[preferred], forceRotation: rotations[0] ?? 0 },
+        { ...boxes[other], forceRotation: rotations[1] ?? 180 }
       ];
     }
-    return sideName === "裏" && settings.mirrorBack ? boxes.reverse() : boxes;
+    return boxes;
   }
 
   const cellW = (settings.sheetW - settings.gutter * (settings.cols - 1) - 24) / settings.cols;
@@ -439,7 +586,8 @@ function preflight(settings, count, plan) {
   if (!count) out.push({ level: "info", text: "PDF未読込です。面付け設定の下見のみ表示しています。" });
   if (count && (count % 4 === 2 || count % 4 === 1) && settings.mode === "booklet" && settings.pagePolicy === "insert-duplex") {
     const oddNote = count % 4 === 1 ? "奇数ページのため末尾に白ページを1ページ追加し、" : "";
-    out.push({ level: "info", text: `${oddNote}末尾2ページは差し込み両面として別版面に出力します。差し込みページは左右2面に複製し、ドブ位置で折り返すドンテン配置にします。` });
+    const sourceLabel = settings.product === "saddle" || settings.insertPageSource === "middle" ? "本文中央の2ページ" : "末尾の2ページ";
+    out.push({ level: "info", text: `${oddNote}${sourceLabel}を差し込み両面として別版面に出力します。` });
   } else if (count && count % 4 === 3 && settings.mode === "booklet" && settings.pagePolicy === "insert-duplex") {
     out.push({ level: "info", text: "奇数ページのため末尾に白ページを1ページ追加し、通常の4ページ単位の折丁として出力します。" });
   } else if (count && count % 4 !== 0 && settings.mode === "booklet") {
@@ -485,15 +633,24 @@ function buildTicket(settings, count, plan, warnings) {
       signatureSize: settings.signatureSize,
       pagePolicy: settings.pagePolicy,
       insertPosition: settings.insertPosition,
+      insertPageSource: settings.insertPageSource,
       plan
     },
     marks: {
       cropMarks: settings.cropMarks,
       cropMarkStyle: settings.cropMarkStyle,
+      markColor: settings.markColor,
       foldMarks: settings.foldMarks,
       registerMarks: settings.registerMarks,
       colorBars: settings.colorBars,
       slug: settings.slug,
+      printFolios: settings.printFolios,
+      folioPosition: settings.folioPosition,
+      folioSizePt: settings.folioSize,
+      folioFont: settings.folioFont,
+      folioHige: settings.folioHige,
+      folioColor: settings.folioColor,
+      folioCmyk: [settings.folioC, settings.folioM, settings.folioY, settings.folioK],
       markOffsetMm: settings.markOffset,
       markWeightPt: settings.markWeight
     },
@@ -515,6 +672,7 @@ async function generatePdf() {
     const src = await PDFDocument.load(sourceBytes);
     const out = await PDFDocument.create();
     const font = await out.embedFont(StandardFonts.Helvetica);
+    const folioFont = await out.embedFont(resolveStandardFont(StandardFonts, settings.folioFont));
     const sheetW = mmToPt(settings.sheetW);
     const sheetH = mmToPt(settings.sheetH);
     const trimW = mmToPt(settings.trimW);
@@ -555,7 +713,10 @@ async function generatePdf() {
           mirrorX: false
         });
         if (settings.cropMarks) drawCropMarks(page, x, y, trimW, trimH, settings, b);
-        page.drawText(`P${pageNo}`, { x: x + 5, y: y + 5, size: 6, font, color: rgb(.1, .1, .1) });
+        if (settings.printFolios) drawFolio(page, pageNo, x, y, trimW, trimH, settings, folioFont);
+      }
+      if (settings.cropMarks && settings.mode === "booklet") {
+        drawGutterCenterMarks(page, boxes, sheetH, settings);
       }
     }
 
@@ -588,6 +749,12 @@ function rotatedPageSize(width, height, rotation) {
   return normalized === 90 || normalized === 270
     ? { width: height, height: width }
     : { width, height };
+}
+
+function resolveStandardFont(StandardFonts, value) {
+  if (value === "times") return StandardFonts.TimesRoman;
+  if (value === "courier") return StandardFonts.Courier;
+  return StandardFonts.Helvetica;
 }
 
 function drawPlacedPage(page, embedded, placement) {
@@ -648,6 +815,52 @@ function drawPlacedPage(page, embedded, placement) {
   });
 }
 
+function drawFolio(page, pageNo, x, y, w, h, settings, font) {
+  const text = `P${pageNo}`;
+  const size = Math.max(3, settings.folioSize || 6);
+  const color = folioInk(settings);
+  const margin = mmToPt(3);
+  const textWidth = font.widthOfTextAtSize(text, size);
+  const textHeight = size;
+  const isTop = settings.folioPosition.startsWith("top");
+  const isCenter = settings.folioPosition.endsWith("center");
+  const isRight = settings.folioPosition.endsWith("right");
+  const tx = isCenter ? x + (w - textWidth) / 2 : isRight ? x + w - margin - textWidth : x + margin;
+  const ty = isTop ? y + h - margin - textHeight : y + margin;
+  page.drawText(text, { x: tx, y: ty, size, font, color });
+  if (settings.folioHige) {
+    const lineY = ty + textHeight / 2;
+    const gap = mmToPt(1.4);
+    const len = mmToPt(4);
+    page.drawLine({ start: { x: tx - gap - len, y: lineY }, end: { x: tx - gap, y: lineY }, thickness: settings.markWeight, color });
+    page.drawLine({ start: { x: tx + textWidth + gap, y: lineY }, end: { x: tx + textWidth + gap + len, y: lineY }, thickness: settings.markWeight, color });
+  }
+}
+
+function markInk(settings) {
+  const { cmyk } = PDFLib;
+  return settings.markColor === "black" ? cmyk(0, 0, 0, 1) : cmyk(1, 1, 1, 1);
+}
+
+function folioInk(settings) {
+  const { cmyk } = PDFLib;
+  if (settings.folioColor === "registration") return cmyk(1, 1, 1, 1);
+  if (settings.folioColor === "rich-black") return cmyk(.6, .4, .4, 1);
+  if (settings.folioColor === "custom-cmyk") {
+    return cmyk(
+      clampPercent(settings.folioC),
+      clampPercent(settings.folioM),
+      clampPercent(settings.folioY),
+      clampPercent(settings.folioK)
+    );
+  }
+  return cmyk(0, 0, 0, 1);
+}
+
+function clampPercent(value) {
+  return Math.min(100, Math.max(0, Number(value) || 0)) / 100;
+}
+
 function creepOffset(settings, pageNo, pageCount) {
   if (settings.mode !== "booklet" || !settings.creep) return 0;
   const center = (pageCount + 1) / 2;
@@ -657,6 +870,7 @@ function creepOffset(settings, pageNo, pageCount) {
 
 function drawMarks(page, settings, font, imposed) {
   const { rgb, cmyk } = PDFLib;
+  const markColor = markInk(settings);
   const w = mmToPt(settings.sheetW);
   const h = mmToPt(settings.sheetH);
   const grip = mmToPt(settings.gripper);
@@ -675,9 +889,9 @@ function drawMarks(page, settings, font, imposed) {
   }
   if (settings.registerMarks) {
     [[w / 2, h - mmToPt(10)], [w / 2, mmToPt(10)], [mmToPt(10), h / 2], [w - mmToPt(10), h / 2]].forEach(([x, y]) => {
-      page.drawCircle({ x, y, size: 4, borderColor: rgb(0, 0, 0), borderWidth: .3 });
-      page.drawLine({ start: { x: x - 8, y }, end: { x: x + 8, y }, thickness: .25, color: rgb(0,0,0) });
-      page.drawLine({ start: { x, y: y - 8 }, end: { x, y: y + 8 }, thickness: .25, color: rgb(0,0,0) });
+      page.drawCircle({ x, y, size: 4, borderColor: markColor, borderWidth: .3 });
+      page.drawLine({ start: { x: x - 8, y }, end: { x: x + 8, y }, thickness: .25, color: markColor });
+      page.drawLine({ start: { x, y: y - 8 }, end: { x, y: y + 8 }, thickness: .25, color: markColor });
     });
   }
   if (settings.colorBars) {
@@ -692,7 +906,6 @@ function drawMarks(page, settings, font, imposed) {
 }
 
 function drawCropMarks(page, x, y, w, h, settings, box = {}) {
-  const { rgb } = PDFLib;
   if (settings.cropMarkStyle === "japanese-double") {
     drawJapaneseDoubleCropMarks(page, x, y, w, h, settings, box.gutterSide);
     return;
@@ -700,7 +913,7 @@ function drawCropMarks(page, x, y, w, h, settings, box = {}) {
   const len = mmToPt(7);
   const off = mmToPt(settings.markOffset);
   const t = settings.markWeight;
-  const color = rgb(0, 0, 0);
+  const color = markInk(settings);
   const marks = [
     [[x - off - len, y + h], [x - off, y + h]], [[x, y + h + off], [x, y + h + off + len]],
     [[x + w + off, y + h], [x + w + off + len, y + h]], [[x + w, y + h + off], [x + w, y + h + off + len]],
@@ -708,12 +921,25 @@ function drawCropMarks(page, x, y, w, h, settings, box = {}) {
     [[x + w + off, y], [x + w + off + len, y]], [[x + w, y - off], [x + w, y - off - len]]
   ];
   marks.forEach(([[x1, y1], [x2, y2]]) => page.drawLine({ start: { x: x1, y: y1 }, end: { x: x2, y: y2 }, thickness: t, color }));
-  drawCenterCropMarks(page, x, y, w, h, settings, "western");
+  drawCenterCropMarks(page, x, y, w, h, settings, "western", box.gutterSide);
+}
+
+function drawGutterCenterMarks(page, boxes, sheetH, settings) {
+  if (boxes.length < 2) return;
+  const sorted = [...boxes].sort((a, b) => a.x - b.x);
+  const gutterX = mmToPt((sorted[0].x + sorted[0].w + sorted[1].x) / 2);
+  const topY = sheetH - mmToPt(sorted[0].y);
+  const bottomY = sheetH - mmToPt(sorted[0].y + sorted[0].h);
+  const gap = mmToPt(settings.markOffset);
+  const len = mmToPt(12);
+  const color = markInk(settings);
+  const thickness = settings.markWeight;
+  page.drawLine({ start: { x: gutterX, y: topY + gap }, end: { x: gutterX, y: topY + gap + len }, thickness, color });
+  page.drawLine({ start: { x: gutterX, y: bottomY - gap }, end: { x: gutterX, y: bottomY - gap - len }, thickness, color });
 }
 
 function drawJapaneseDoubleCropMarks(page, x, y, w, h, settings, gutterSide) {
-  const { rgb } = PDFLib;
-  const color = rgb(0, 0, 0);
+  const color = markInk(settings);
   const t = settings.markWeight;
   const len = mmToPt(10);
   const gap = mmToPt(settings.markOffset);
@@ -727,9 +953,11 @@ function drawJapaneseDoubleCropMarks(page, x, y, w, h, settings, gutterSide) {
   drawJapaneseCorner(right, top, 1, 1, gutterSide === "right");
   drawJapaneseCorner(left, bottom, -1, -1, gutterSide === "left");
   drawJapaneseCorner(right, bottom, 1, -1, gutterSide === "right");
-  drawCenterCropMarks(page, x, y, w, h, settings, "japanese");
+  drawCenterCropMarks(page, x, y, w, h, settings, "japanese", gutterSide);
 
   function drawJapaneseCorner(cx, cy, sx, sy, isGutterSide) {
+    if (isGutterSide) return;
+
     const horizontalStart = cx + sx * gap;
     const horizontalEnd = cx + sx * (gap + len);
     const verticalStart = cy + sy * gap;
@@ -739,10 +967,8 @@ function drawJapaneseDoubleCropMarks(page, x, y, w, h, settings, gutterSide) {
 
     drawLine(horizontalStart, cy, horizontalEnd, cy);
     drawLine(cx, verticalStart, cx, verticalEnd);
-    if (!isGutterSide) {
-      drawLine(horizontalStart, bleedY, horizontalEnd, bleedY);
-      drawLine(bleedX, verticalStart, bleedX, verticalEnd);
-    }
+    drawLine(horizontalStart, bleedY, horizontalEnd, bleedY);
+    drawLine(bleedX, verticalStart, bleedX, verticalEnd);
   }
 
   function drawLine(x1, y1, x2, y2) {
@@ -755,9 +981,8 @@ function drawJapaneseDoubleCropMarks(page, x, y, w, h, settings, gutterSide) {
   }
 }
 
-function drawCenterCropMarks(page, x, y, w, h, settings, style) {
-  const { rgb } = PDFLib;
-  const color = rgb(0, 0, 0);
+function drawCenterCropMarks(page, x, y, w, h, settings, style, gutterSide) {
+  const color = markInk(settings);
   const t = settings.markWeight;
   const gap = mmToPt(settings.markOffset);
   const len = mmToPt(style === "japanese" ? 9 : 14);
@@ -765,8 +990,8 @@ function drawCenterCropMarks(page, x, y, w, h, settings, style) {
   const centerY = y + h / 2;
   drawLine(centerX, y + h + gap, centerX, y + h + gap + len);
   drawLine(centerX, y - gap, centerX, y - gap - len);
-  drawLine(x - gap, centerY, x - gap - len, centerY);
-  drawLine(x + w + gap, centerY, x + w + gap + len, centerY);
+  if (gutterSide !== "left") drawLine(x - gap, centerY, x - gap - len, centerY);
+  if (gutterSide !== "right") drawLine(x + w + gap, centerY, x + w + gap + len, centerY);
 
   function drawLine(x1, y1, x2, y2) {
     page.drawLine({
@@ -901,6 +1126,21 @@ function wire() {
   $("deleteImpositionPreset").addEventListener("click", deleteSelectedImpositionPreset);
   $("saveSheetPreset").addEventListener("click", saveCurrentSheetPreset);
   $("deleteSheetPreset").addEventListener("click", deleteCurrentSheetPreset);
+  $("previewPrev").addEventListener("click", () => {
+    previewIndex = Math.max(0, previewIndex - 1);
+    updatePreview();
+  });
+  $("previewNext").addEventListener("click", () => {
+    const { plan } = currentPlan();
+    previewIndex = Math.min(Math.max(plan.length - 1, 0), previewIndex + 1);
+    updatePreview();
+  });
+  $("previewPage").addEventListener("change", () => {
+    const { plan } = currentPlan();
+    const max = Math.max(plan.length, 1);
+    previewIndex = Math.min(max - 1, Math.max(0, Number($("previewPage").value) - 1 || 0));
+    updatePreview();
+  });
   $("pdfFile").addEventListener("change", async (event) => {
     const file = event.target.files[0];
     if (!file) return;
