@@ -19,7 +19,7 @@ body {
   color: var(--ink);
 }
 
-button, input, select {
+button, input, select, textarea {
   font: inherit;
 }
 
@@ -126,10 +126,23 @@ h1 {
   word-break: break-all;
 }
 
+.pdf-info {
+  display: grid;
+  gap: 4px;
+  margin-top: 2px;
+  color: #334050;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.pdf-info span {
+  display: block;
+}
+
 .tabs {
   margin: 16px 0;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   border: 1px solid var(--line);
   border-radius: 7px;
   overflow: hidden;
@@ -186,7 +199,7 @@ label {
   font-weight: 700;
 }
 
-input, select {
+input, select, textarea {
   width: 100%;
   min-height: 36px;
   border: 1px solid #c9d1da;
@@ -194,6 +207,14 @@ input, select {
   background: #fff;
   color: var(--ink);
   padding: 7px 9px;
+}
+
+textarea {
+  min-height: 136px;
+  resize: vertical;
+  font-family: Consolas, "Yu Gothic UI", monospace;
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .checks {
@@ -432,6 +453,22 @@ button:disabled {
   top: 8px;
 }
 
+.spine-preview {
+  position: absolute;
+  max-width: 46%;
+  padding: 3px 6px;
+  border-left: 8px solid #111827;
+  background: rgba(255, 255, 255, .92);
+  color: #111827;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.2;
+  transform: translate(-50%, -50%) rotate(90deg);
+  transform-origin: center;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
 .mark {
   position: absolute;
   background: #111;
@@ -465,10 +502,61 @@ button:disabled {
 
 .report li {
   margin: 5px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
 }
 
+.report li.ok {
+  border-color: #9fd4cc;
+  background: #f0fbf8;
+}
+
+.report li.warn,
 .warn {
   color: var(--accent-2);
+}
+
+.report li.warn {
+  border-color: #e7bd6a;
+  background: #fff8e8;
+}
+
+.report li.error {
+  color: #8f261d;
+  border-color: #dfa39c;
+  background: #fff0ee;
+}
+
+.hint {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.plan-list {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+  max-height: 260px;
+  overflow: auto;
+}
+
+.plan-row {
+  display: grid;
+  grid-template-columns: 72px 56px 1fr;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  font-size: 12px;
+}
+
+.plan-row strong {
+  color: var(--accent);
 }
 
 @media (max-width: 860px) {

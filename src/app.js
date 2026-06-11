@@ -4,6 +4,8 @@ const ptToMm = (pt) => pt * 25.4 / 72;
 
 let sourceBytes = null;
 let sourcePdf = null;
+let sourceInfo = null;
+let pageSequence = [];
 let lastTicket = null;
 let previewIndex = 0;
 
@@ -15,14 +17,49 @@ const LAST_SETTINGS_STORAGE = "pdf-imposition-last-settings";
 const presets = {
   "636x939": [636, 939],
   "469x636": [469, 636],
+  "318x469": [318, 469],
+  "234x318": [234, 318],
   "788x1091": [788, 1091],
   "545x788": [545, 788],
+  "394x545": [394, 545],
+  "272x394": [272, 394],
   "625x880": [625, 880],
+  "440x625": [440, 625],
+  "312x440": [312, 440],
+  "220x312": [220, 312],
   "765x1085": [765, 1085],
-  "450x625": [450, 625],
   "542x765": [542, 765],
+  "382x542": [382, 542],
+  "271x382": [271, 382],
+  "900x1200": [900, 1200],
+  "600x900": [600, 900],
+  "530x770": [530, 770],
+  "650x950": [650, 950],
+  "800x1030": [800, 1030],
+  "720x1020": [720, 1020],
+  "1030x1456": [1030, 1456],
+  "841x1189": [841, 1189],
+  "594x841": [594, 841],
+  "420x594": [420, 594],
+  "297x420": [297, 420],
+  "450x625": [450, 625],
   "320x450": [320, 450],
   "364x515": [364, 515],
+  "329x483": [329, 483],
+  "488x650": [488, 650],
+  "330x488": [330, 488],
+  "320x464": [320, 464],
+  "305x457": [305, 457],
+  "330x482": [330, 482],
+};
+
+const modePresets = {
+  "signature-4": { signatureSize: 4, cols: 2, rows: 1 },
+  "signature-8": { signatureSize: 8, cols: 2, rows: 2 },
+  "signature-12": { signatureSize: 12, cols: 3, rows: 2 },
+  "signature-16": { signatureSize: 16, cols: 4, rows: 2 },
+  "signature-24": { signatureSize: 24, cols: 4, rows: 3 },
+  "signature-32": { signatureSize: 32, cols: 4, rows: 4 },
 };
 
 const ids = [
@@ -32,6 +69,7 @@ const ids = [
   "spineGutter", "creep", "signatureSize", "rotation", "pageOrder",
   "insertPosition", "insertPageSource", "cropMarks", "cropMarkStyle", "markColor", "foldMarks", "registerMarks", "colorBars", "slug",
   "printFolios", "folioPosition", "folioSize", "folioFont", "folioHige", "folioColor", "folioC", "folioM", "folioY", "folioK",
+  "spineMarks", "spineTextMode", "spineText", "spineTextSize", "spineMarkSize", "spineMarkStep", "spineMarkShape",
   "mirrorBack", "markOffset", "markWeight", "patchSize", "barPosition"
 ];
 
@@ -41,7 +79,7 @@ function readSettings() {
     const el = $(id);
     s[id] = el.type === "checkbox" ? el.checked : el.value;
   }
-  for (const id of ["trimW", "trimH", "bleed", "safeMargin", "folioStart", "sheetW", "sheetH", "gripper", "tail", "cols", "rows", "gutter", "spineGutter", "creep", "signatureSize", "markOffset", "markWeight", "patchSize", "folioSize", "folioC", "folioM", "folioY", "folioK"]) {
+  for (const id of ["trimW", "trimH", "bleed", "safeMargin", "folioStart", "sheetW", "sheetH", "gripper", "tail", "cols", "rows", "gutter", "spineGutter", "creep", "signatureSize", "markOffset", "markWeight", "patchSize", "folioSize", "folioC", "folioM", "folioY", "folioK", "spineTextSize", "spineMarkSize", "spineMarkStep"]) {
     s[id] = Number(s[id]);
   }
   return s;
@@ -131,13 +169,19 @@ function renderImpositionPresetOptions(selectedValue = $("impositionPreset")?.va
 }
 
 function saveCurrentImpositionPreset() {
-  const name = $("impositionPresetName").value.trim();
+  let name = $("impositionPresetName").value.trim();
+  if (!name && selectedImpositionPreset()) {
+    name = selectedImpositionPreset().name;
+  }
+  if (!name) {
+    name = window.prompt("保存する面付設定名を入力してください。", presetNameFromSettings(readSettings()))?.trim() || "";
+  }
   if (!name) {
     setStatus("面付設定名を入力してください。", "error");
     return;
   }
   const items = loadImpositionPresets();
-  const id = safeName(name).toLowerCase();
+  const id = uniquePresetId(safeName(name).toLowerCase());
   const existing = items.findIndex(item => item.id === id);
   const item = {
     id,
@@ -158,6 +202,19 @@ function saveCurrentImpositionPreset() {
   updatePreview();
 }
 
+function presetNameFromSettings(settings) {
+  const product = settings.product === "saddle" ? "中綴じ" : settings.product === "perfect" ? "無線綴じ" : "端物";
+  const binding = settings.binding === "right" ? "右綴じ" : settings.binding === "left" ? "左綴じ" : "天綴じ";
+  return `${product} ${binding} ${settings.sheetW}x${settings.sheetH}`;
+}
+
+function selectedImpositionPreset() {
+  const value = $("impositionPreset").value;
+  if (!value.startsWith(IMPOSITION_PRESET_PREFIX)) return null;
+  const id = value.slice(IMPOSITION_PRESET_PREFIX.length);
+  return loadImpositionPresets().find(preset => preset.id === id) || null;
+}
+
 function applySelectedImpositionPreset() {
   const value = $("impositionPreset").value;
   if (!value.startsWith(IMPOSITION_PRESET_PREFIX)) return;
@@ -165,9 +222,90 @@ function applySelectedImpositionPreset() {
   const item = loadImpositionPresets().find(preset => preset.id === id);
   if (!item) return;
   applySettings(item.settings);
+  $("impositionPresetName").value = item.name;
+  showSelectedImpositionPreset();
   persistLastSettings();
   setStatus(`面付設定「${item.name}」を読み込みました。`, "ready");
   updatePreview();
+}
+
+function updateSelectedImpositionPreset() {
+  const item = selectedImpositionPreset();
+  if (!item) {
+    setStatus("更新する面付設定プリセットを選択してください。", "error");
+    return;
+  }
+  const items = loadImpositionPresets();
+  const index = items.findIndex(preset => preset.id === item.id);
+  items[index] = {
+    ...item,
+    settings: readSettings(),
+    updatedAt: new Date().toISOString()
+  };
+  saveImpositionPresets(items);
+  showSelectedImpositionPreset();
+  setStatus(`面付設定「${item.name}」を現在の設定で更新しました。`, "ready");
+}
+
+function renameSelectedImpositionPreset() {
+  const item = selectedImpositionPreset();
+  if (!item) {
+    setStatus("名前を変更する面付設定プリセットを選択してください。", "error");
+    return;
+  }
+  const name = window.prompt("新しい面付設定名を入力してください。", item.name)?.trim();
+  if (!name) return;
+  const id = uniquePresetId(safeName(name).toLowerCase(), item.id);
+  const items = loadImpositionPresets().map(preset => preset.id === item.id
+    ? { ...preset, id, name, updatedAt: new Date().toISOString() }
+    : preset
+  );
+  saveImpositionPresets(items);
+  renderImpositionPresetOptions(`${IMPOSITION_PRESET_PREFIX}${id}`);
+  $("impositionPreset").value = `${IMPOSITION_PRESET_PREFIX}${id}`;
+  $("impositionPresetName").value = name;
+  showSelectedImpositionPreset();
+  setStatus(`面付設定名を「${name}」に変更しました。`, "ready");
+}
+
+function uniquePresetId(baseId, keepId = null) {
+  const items = loadImpositionPresets();
+  let id = baseId || "preset";
+  let suffix = 2;
+  while (items.some(item => item.id === id && item.id !== keepId)) {
+    id = `${baseId}-${suffix}`;
+    suffix += 1;
+  }
+  return id;
+}
+
+function showSelectedImpositionPreset() {
+  const editor = $("impositionPresetEditor");
+  if (!editor) return;
+  const item = selectedImpositionPreset();
+  editor.value = item ? JSON.stringify(item.settings, null, 2) : "";
+}
+
+function applyImpositionPresetEditor() {
+  const item = selectedImpositionPreset();
+  if (!item) {
+    setStatus("編集する面付設定プリセットを選択してください。", "error");
+    return;
+  }
+  try {
+    const settings = JSON.parse($("impositionPresetEditor").value);
+    const items = loadImpositionPresets().map(preset => preset.id === item.id
+      ? { ...preset, settings, updatedAt: new Date().toISOString() }
+      : preset
+    );
+    saveImpositionPresets(items);
+    applySettings(settings);
+    persistLastSettings();
+    updatePreview();
+    setStatus(`面付設定「${item.name}」をJSON内容で更新しました。`, "ready");
+  } catch (error) {
+    setStatus(`プリセットJSONを読み込めません: ${error.message || error}`, "error");
+  }
 }
 
 function deleteSelectedImpositionPreset() {
@@ -180,6 +318,8 @@ function deleteSelectedImpositionPreset() {
   saveImpositionPresets(loadImpositionPresets().filter(item => item.id !== id));
   renderImpositionPresetOptions("");
   $("impositionPreset").value = "";
+  $("impositionPresetName").value = "";
+  showSelectedImpositionPreset();
   setStatus("選択した面付設定プリセットを削除しました。", "ready");
 }
 
@@ -212,9 +352,12 @@ function renderCustomPresetOptions(selectedValue = $("sheetPreset")?.value) {
 }
 
 function saveCurrentSheetPreset() {
-  const name = $("sheetPresetName").value.trim();
+  let name = $("sheetPresetName").value.trim();
   if (!name) {
-    setStatus("マスタ用紙サイズ名を入力してください。", "error");
+    name = window.prompt("保存する任意用紙サイズ名を入力してください。", `任意 ${$("sheetW").value}x${$("sheetH").value}`)?.trim() || "";
+  }
+  if (!name) {
+    setStatus("任意の用紙サイズ名を入力してください。", "error");
     return;
   }
   const settings = readSettings();
@@ -236,14 +379,15 @@ function saveCurrentSheetPreset() {
   saveCustomPresets(items);
   renderCustomPresetOptions(`${CUSTOM_PRESET_PREFIX}${id}`);
   $("sheetPreset").value = `${CUSTOM_PRESET_PREFIX}${id}`;
-  setStatus(`マスタ用紙サイズ「${name}」を保存しました。`, "ready");
+  $("sheetPresetName").value = name;
+  setStatus(`任意の用紙サイズ「${name}」を保存しました。`, "ready");
   updatePreview();
 }
 
 function deleteCurrentSheetPreset() {
   const value = $("sheetPreset").value;
   if (!value.startsWith(CUSTOM_PRESET_PREFIX)) {
-    setStatus("削除できるのは保存したマスタ用紙サイズのみです。", "error");
+    setStatus("削除できるのは保存した任意の用紙サイズのみです。", "error");
     return;
   }
   const id = value.slice(CUSTOM_PRESET_PREFIX.length);
@@ -252,7 +396,8 @@ function deleteCurrentSheetPreset() {
   delete presets[value];
   renderCustomPresetOptions("custom");
   $("sheetPreset").value = "custom";
-  setStatus("選択したマスタ用紙サイズを削除しました。", "ready");
+  $("sheetPresetName").value = "";
+  setStatus("選択した任意の用紙サイズを削除しました。", "ready");
   updatePreview();
 }
 
@@ -262,12 +407,256 @@ function swapSheetDirection() {
   $("sheetH").value = w;
 }
 
+function analyzePdfFile(file, pdf, bytes) {
+  const raw = pdfBytesToString(bytes);
+  const pages = pdf.getPages();
+  const sizes = pages.map(page => ({
+    width: ptToMm(page.getWidth()),
+    height: ptToMm(page.getHeight())
+  }));
+  const first = sizes[0] || { width: 0, height: 0 };
+  const uniform = sizes.every(size =>
+    Math.abs(size.width - first.width) < 0.2 && Math.abs(size.height - first.height) < 0.2
+  );
+  const header = raw.match(/%PDF-(\d\.\d)/);
+  const pdfX = raw.match(/\/GTS_PDFXVersion\s*\(([^)]+)\)|<pdfxid:GTS_PDFXVersion>([^<]+)</);
+  const pdfA = raw.match(/pdfaid:part=['"]?(\d)|<pdfaid:part>([^<]+)</);
+  const outputIntentName = raw.match(/\/OutputConditionIdentifier\s*\(([^)]+)\)/);
+  const outputIntent = /\/OutputIntent\b/.test(raw) || Boolean(outputIntentName);
+  const color = {
+    cmyk: countPdfToken(raw, "/DeviceCMYK"),
+    rgb: countPdfToken(raw, "/DeviceRGB"),
+    gray: countPdfToken(raw, "/DeviceGray"),
+    icc: countPdfToken(raw, "/ICCBased"),
+    spot: countPdfToken(raw, "/Separation") + countPdfToken(raw, "/DeviceN"),
+    separation: countPdfToken(raw, "/Separation"),
+    deviceN: countPdfToken(raw, "/DeviceN")
+  };
+  return {
+    name: file.name,
+    bytes: file.size,
+    sizeText: formatBytes(file.size),
+    pageCount: pdf.getPageCount(),
+    firstPageMm: first,
+    pageSizesUniform: uniform,
+    pageSizesSummary: pageSizeSummary(sizes),
+    pdfVersion: header ? header[1] : "不明",
+    pdfX: pdfX ? (pdfX[1] || pdfX[2]) : "",
+    pdfA: pdfA ? (pdfA[1] || pdfA[2]) : "",
+    encrypted: /\/Encrypt\b/.test(raw),
+    linearized: /\/Linearized\b/.test(raw),
+    tagged: /\/MarkInfo\b[\s\S]{0,160}\/Marked\s+true/.test(raw),
+    xmp: /\/Metadata\b|<x:xmpmeta\b/.test(raw),
+    outputIntent,
+    outputIntentName: outputIntentName ? outputIntentName[1] : "",
+    color,
+    images: countPdfToken(raw, "/Subtype /Image") + countPdfToken(raw, "/Subtype/Image"),
+    fontsEmbedded: countPdfToken(raw, "/FontFile") + countPdfToken(raw, "/FontFile2") + countPdfToken(raw, "/FontFile3"),
+    transparency: /\/SMask\b|\/ca\s+0?\.\d+|\/CA\s+0?\.\d+/.test(raw),
+    overprint: /\/OP\s+true|\/op\s+true/.test(raw)
+  };
+}
+
+function pdfBytesToString(bytes) {
+  const view = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  if (typeof TextDecoder !== "undefined") {
+    return new TextDecoder("latin1").decode(view);
+  }
+  let out = "";
+  const chunk = 32768;
+  for (let i = 0; i < view.length; i += chunk) {
+    out += String.fromCharCode(...view.subarray(i, i + chunk));
+  }
+  return out;
+}
+
+function countPdfToken(raw, token) {
+  return (raw.match(new RegExp(`${escapeRegExp(token)}(?![A-Za-z0-9])`, "g")) || []).length;
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function pageSizeSummary(sizes) {
+  const counts = new Map();
+  for (const size of sizes) {
+    const key = `${size.width.toFixed(1)} x ${size.height.toFixed(1)} mm`;
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  return [...counts.entries()].map(([key, count]) => `${key} (${count}P)`).join(" / ");
+}
+
+function formatBytes(bytes) {
+  if (!Number.isFinite(bytes)) return "不明";
+  const units = ["B", "KB", "MB", "GB"];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
+}
+
+function renderPdfInfo(info) {
+  const el = $("pdfInfo");
+  if (!el) return;
+  if (!info) {
+    el.innerHTML = "PDF情報は読み込み後に表示します。";
+    return;
+  }
+  el.innerHTML = [
+    `<b>${escapeHtml(info.pageCount)}ページ</b>`,
+    `${escapeHtml(info.pageSizesSummary || "ページサイズ不明")}`,
+    `容量 ${escapeHtml(info.sizeText)}`,
+    `PDF ${escapeHtml(info.pdfVersion)}${info.pdfX ? ` / ${escapeHtml(info.pdfX)}` : ""}`,
+    `色: ${colorSummary(info)}`
+  ].map(text => `<span>${text}</span>`).join("");
+}
+
+function colorSummary(info) {
+  const parts = [];
+  if (info.color.cmyk) parts.push(`CMYK ${info.color.cmyk}`);
+  if (info.color.rgb) parts.push(`RGB ${info.color.rgb}`);
+  if (info.color.gray) parts.push(`Gray ${info.color.gray}`);
+  if (info.color.spot) parts.push(`特色 ${info.color.spot}`);
+  if (info.color.icc) parts.push(`ICC ${info.color.icc}`);
+  return parts.length ? parts.join(" / ") : "明示色空間なし";
+}
+
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, ch => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    "\"": "&quot;",
+    "'": "&#39;"
+  }[ch]));
+}
+
 function padPages(count, multiple) {
   const out = Array.from({ length: count }, (_, i) => i + 1);
   if ($("pagePolicy").value === "pad") {
     while (out.length % multiple !== 0) out.push(null);
   }
   return out;
+}
+
+function resetPageSequence(count) {
+  pageSequence = Array.from({ length: count }, (_, i) => i + 1);
+  renderPageSequenceEditor();
+}
+
+function renderPageSequenceEditor() {
+  const editor = $("pageSequenceEditor");
+  if (!editor) return;
+  editor.value = pageSequence.map(page => page || "B").join(",");
+}
+
+function parsePageSequence(text, sourceCount) {
+  const tokens = text.split(/[\s,]+/).map(token => token.trim()).filter(Boolean);
+  const out = [];
+  for (const token of tokens) {
+    if (/^(B|b|blank|白)$/i.test(token)) {
+      out.push(null);
+      continue;
+    }
+    const page = Number(token);
+    if (!Number.isInteger(page) || page < 1 || page > sourceCount) {
+      throw new Error(`ページ指定「${token}」は元PDFの範囲外です。`);
+    }
+    out.push(page);
+  }
+  if (!out.length) throw new Error("ページ組替えリストが空です。");
+  return out;
+}
+
+function applyPageSequenceFromEditor() {
+  if (!sourcePdf) {
+    setStatus("先にPDFを選択してください。", "error");
+    return;
+  }
+  try {
+    pageSequence = parsePageSequence($("pageSequenceEditor").value, sourcePdf.getPageCount());
+    previewIndex = 0;
+    setStatus(`ページ組替えを適用しました。論理ページ数: ${pageSequence.length}ページ`, "ready");
+    updatePreview();
+  } catch (error) {
+    setStatus(`ページ組替えに失敗しました: ${error.message || error}`, "error");
+  }
+}
+
+function padPageSequenceToMultiple(multiple) {
+  if (!pageSequence.length) return;
+  while (pageSequence.length % multiple !== 0) pageSequence.push(null);
+  renderPageSequenceEditor();
+  previewIndex = 0;
+  updatePreview();
+}
+
+function sourcePageForLogical(pageNo) {
+  if (!pageNo) return null;
+  if (!pageSequence.length) return pageNo;
+  return pageSequence[pageNo - 1] || null;
+}
+
+function logicalPageCount() {
+  if (pageSequence.length) return pageSequence.length;
+  return sourcePdf ? sourcePdf.getPageCount() : 0;
+}
+
+function isSignatureMode(mode) {
+  return mode === "booklet" || mode.startsWith("signature-");
+}
+
+function isNupMode(mode) {
+  return mode === "nup" || mode.startsWith("nup-");
+}
+
+function modeLabel(settings) {
+  if (settings.mode === "booklet") return "折丁2面付け";
+  if (settings.mode.startsWith("signature-")) {
+    const preset = modePresets[settings.mode];
+    const faces = preset ? preset.cols * preset.rows : settings.cols * settings.rows;
+    return `折丁${settings.signatureSize}P ${faces}面付け`;
+  }
+  if (settings.mode === "nup-repeat") return `${settings.cols}x${settings.rows}同一面反復`;
+  if (settings.mode === "nup-cut-stack") return `${settings.cols}x${settings.rows}丁合断裁`;
+  if (settings.mode === "nup-work-sheet") return `${settings.cols}x${settings.rows}表裏別版`;
+  return `${settings.cols}x${settings.rows}多面付け`;
+}
+
+function applyModePreset() {
+  const mode = $("mode").value;
+  const preset = modePresets[mode];
+  if (preset) {
+    if ($("product").value === "saddle") $("product").value = "perfect";
+    $("signatureSize").value = String(preset.signatureSize);
+    $("cols").value = String(preset.cols);
+    $("rows").value = String(preset.rows);
+    return;
+  }
+  if (mode === "booklet") {
+    $("cols").value = "2";
+    $("rows").value = "1";
+  } else if (mode === "nup-repeat") {
+    $("cols").value = "2";
+    $("rows").value = "2";
+    $("pageOrder").value = "repeat";
+  } else if (mode === "nup-cut-stack") {
+    $("cols").value = "2";
+    $("rows").value = "2";
+    $("pageOrder").value = "normal";
+  } else if (mode === "nup-work-sheet") {
+    $("cols").value = "2";
+    $("rows").value = "1";
+    $("pageOrder").value = "normal";
+  } else if (mode === "nup") {
+    $("cols").value = "2";
+    $("rows").value = "2";
+    $("pageOrder").value = "normal";
+  }
 }
 
 function makeBookletPlan(pageCount, settings) {
@@ -314,6 +703,41 @@ function makeBookletPlan(pageCount, settings) {
     const spread = insertDuplexSpread(pageCount, insertPages, settings);
     plan.push({ side: "差込 表", signature, folio: 1, type: "insert-duplex", pages: spread.front, rotations: spread.frontRotations });
     plan.push({ side: "差込 裏", signature, folio: 1, type: "insert-duplex", pages: spread.back, rotations: spread.backRotations });
+  }
+  return plan;
+}
+
+function makeSignaturePlan(pageCount, settings) {
+  const sigSize = Math.max(4, Number(settings.signatureSize) || 4);
+  const perSide = Math.max(2, Math.ceil(sigSize / 2));
+  const pages = Array.from({ length: pageCount }, (_, i) => i + 1);
+  if (settings.pagePolicy === "pad") {
+    while (pages.length % sigSize !== 0) pages.push(null);
+  }
+  const plan = [];
+  for (let start = 0; start < pages.length; start += sigSize) {
+    const sig = pages.slice(start, start + sigSize);
+    while (sig.length < sigSize) sig.push(null);
+    const front = [];
+    const back = [];
+    let low = 0;
+    let high = sig.length - 1;
+    while (low < high) {
+      if (settings.binding === "right") {
+        front.push(sig[low], sig[high]);
+        back.push(sig[high - 1], sig[low + 1]);
+      } else {
+        front.push(sig[high], sig[low]);
+        back.push(sig[low + 1], sig[high - 1]);
+      }
+      low += 2;
+      high -= 2;
+    }
+    while (front.length < perSide) front.push(null);
+    while (back.length < perSide) back.push(null);
+    const signature = Math.floor(start / sigSize) + 1;
+    plan.push({ side: "表", signature, folio: 1, pages: front.slice(0, perSide), type: "signature" });
+    plan.push({ side: "裏", signature, folio: 1, pages: back.slice(0, perSide), type: "signature" });
   }
   return plan;
 }
@@ -434,33 +858,59 @@ function makeNupPlan(pageCount, settings) {
   const plan = [];
   for (let i = 0; i < pages.length; i += perSide) {
     let sheetPages = pages.slice(i, i + perSide);
-    if (settings.pageOrder === "repeat" && sheetPages[0]) {
+    if ((settings.pageOrder === "repeat" || settings.mode === "nup-repeat") && sheetPages[0]) {
       sheetPages = Array(perSide).fill(sheetPages[0]);
+    } else if (settings.mode === "nup-cut-stack") {
+      sheetPages = cutStackPages(pages, i, perSide, settings.rows, settings.cols);
     }
     while (sheetPages.length < perSide) sheetPages.push(null);
     plan.push({ side: "表", signature: Math.floor(i / perSide) + 1, folio: 1, pages: sheetPages });
+    if (settings.mode === "nup-work-sheet") {
+      const backPages = [...sheetPages].reverse();
+      plan.push({ side: "裏", signature: Math.floor(i / perSide) + 1, folio: 1, pages: backPages });
+    }
   }
   return plan;
 }
 
+function cutStackPages(pages, start, perSide, rows, cols) {
+  const out = Array(perSide).fill(null);
+  const stackHeight = Math.ceil(pages.length / perSide);
+  for (let index = 0; index < perSide; index++) {
+    const page = pages[start / perSide + index * stackHeight];
+    const row = Math.floor(index / cols);
+    const col = index % cols;
+    out[row * cols + col] = page || null;
+  }
+  return out;
+}
+
 function currentPlan() {
   const settings = readSettings();
-  const count = sourcePdf ? sourcePdf.getPageCount() : 0;
-  const plan = settings.mode === "booklet" ? makeBookletPlan(count, settings) : makeNupPlan(count, settings);
+  const count = logicalPageCount();
+  const plan = settings.mode === "booklet"
+    ? makeBookletPlan(count, settings)
+    : settings.mode.startsWith("signature-")
+      ? makeSignaturePlan(count, settings)
+      : makeNupPlan(count, settings);
   return { settings, count, plan };
 }
 
 function updatePreviewControls(total) {
   const pageInput = $("previewPage");
   const totalLabel = $("previewTotal");
+  const first = $("previewFirst");
   const prev = $("previewPrev");
   const next = $("previewNext");
+  const last = $("previewLast");
   const max = Math.max(total, 1);
   pageInput.max = String(max);
   pageInput.value = String(Math.min(previewIndex + 1, max));
   totalLabel.textContent = `/ ${max}`;
+  first.disabled = previewIndex <= 0;
   prev.disabled = previewIndex <= 0;
   next.disabled = previewIndex >= max - 1;
+  last.disabled = previewIndex >= max - 1;
 }
 
 function updatePreview() {
@@ -514,10 +964,24 @@ function updatePreview() {
     sheet.appendChild(line);
   }
 
+  if (settings.spineMarks && isSignatureMode(settings.mode) && boxes.length >= 2) {
+    const spine = document.createElement("div");
+    const sorted = [...boxes].sort((a, b) => a.x - b.x);
+    const gutterX = (sorted[0].x + sorted[0].w + sorted[1].x) / 2;
+    const step = settings.spineMarkStep || 6;
+    const y = sorted[0].y + Math.min(sorted[0].h - 12, 8 + (selected.signature - 1) * step);
+    spine.className = "spine-preview";
+    spine.style.left = `${gutterX / settings.sheetW * 100}%`;
+    spine.style.top = `${y / settings.sheetH * 100}%`;
+    spine.textContent = spineLabel(settings, selected);
+    sheet.appendChild(spine);
+  }
+
   const warnings = preflight(settings, count, plan);
-  $("preflight").innerHTML = warnings.map(w => `<li class="${w.level === "warn" ? "warn" : ""}">${w.text}</li>`).join("");
+  $("preflight").innerHTML = warnings.map(w => `<li class="${w.level || "info"}">${w.text}</li>`).join("");
+  renderPlanList(plan);
   $("summary").textContent = count
-    ? `${count}ページ / ${settings.sheetW}x${settings.sheetH}mm / ${settings.mode === "booklet" ? "折丁2面付け" : `${settings.cols}x${settings.rows}多面付け`} / ${plan.length}版面 / 表示 ${previewIndex + 1}`
+    ? `${count}ページ / ${settings.sheetW}x${settings.sheetH}mm / ${modeLabel(settings)} / ${plan.length}版面 / 表示 ${previewIndex + 1}`
     : "PDFを選択すると台割と刷り本の概要を表示します。";
   updatePreviewControls(plan.length);
   $("badges").innerHTML = [
@@ -530,6 +994,25 @@ function updatePreview() {
 
   lastTicket = buildTicket(settings, count, plan, warnings);
   $("downloadTicket").disabled = !count;
+}
+
+function renderPlanList(plan) {
+  const target = $("impositionPlan");
+  if (!target) return;
+  if (!plan.length) {
+    target.innerHTML = "<p class=\"hint\">PDFを選択すると台割を表示します。</p>";
+    return;
+  }
+  target.innerHTML = plan.map((item, index) => {
+    const pages = item.pages.map(page => page ? logicalPageLabel(page) : "白").join(" - ");
+    return `<div class="plan-row"><strong>${index + 1}面</strong><span>${escapeHtml(item.side)}</span><span>${escapeHtml(`${item.signature}折 / ${pages}`)}</span></div>`;
+  }).join("");
+}
+
+function logicalPageLabel(pageNo) {
+  const src = sourcePageForLogical(pageNo);
+  if (!src) return `L${pageNo}:白`;
+  return pageSequence.length ? `L${pageNo}->P${src}` : `P${pageNo}`;
 }
 
 function layoutBoxes(settings, side) {
@@ -555,14 +1038,20 @@ function layoutBoxes(settings, side) {
     return boxes;
   }
 
-  const cellW = (settings.sheetW - settings.gutter * (settings.cols - 1) - 24) / settings.cols;
-  const cellH = (settings.sheetH - settings.gripper - settings.tail - settings.gutter * (settings.rows - 1) - 16) / settings.rows;
+  const cols = settings.mode.startsWith("signature-")
+    ? Math.max(1, Number(settings.cols) || 1)
+    : settings.cols;
+  const rows = settings.mode.startsWith("signature-")
+    ? Math.max(1, Number(settings.rows) || 1)
+    : settings.rows;
+  const cellW = (settings.sheetW - settings.gutter * (cols - 1) - 24) / cols;
+  const cellH = (settings.sheetH - settings.gripper - settings.tail - settings.gutter * (rows - 1) - 16) / rows;
   const w = Math.min(settings.trimW, cellW);
   const h = Math.min(settings.trimH, cellH);
   const startX = 12 + (cellW - w) / 2;
   const startY = settings.gripper + 8 + (cellH - h) / 2;
-  for (let r = 0; r < settings.rows; r++) {
-    for (let c = 0; c < settings.cols; c++) {
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
       boxes.push({
         x: startX + c * (cellW + settings.gutter),
         y: startY + r * (cellH + settings.gutter),
@@ -576,15 +1065,46 @@ function layoutBoxes(settings, side) {
 
 function preflight(settings, count, plan) {
   const out = [];
+  const signatureGrid = settings.mode.startsWith("signature-");
   const fitW = settings.mode === "booklet"
     ? settings.trimW * 2 + settings.gutter + settings.spineGutter + settings.bleed * 2
+    : signatureGrid
+      ? settings.cols * settings.trimW + (settings.cols - 1) * settings.gutter + settings.bleed * 2
     : settings.cols * settings.trimW + (settings.cols - 1) * settings.gutter + settings.bleed * 2;
   const fitH = settings.mode === "booklet"
     ? settings.trimH + settings.bleed * 2
+    : signatureGrid
+      ? settings.rows * settings.trimH + (settings.rows - 1) * settings.gutter + settings.bleed * 2
     : settings.rows * settings.trimH + (settings.rows - 1) * settings.gutter + settings.bleed * 2;
   const availableH = settings.sheetH - settings.gripper - settings.tail;
   if (!count) out.push({ level: "info", text: "PDF未読込です。面付け設定の下見のみ表示しています。" });
-  if (count && (count % 4 === 2 || count % 4 === 1) && settings.mode === "booklet" && settings.pagePolicy === "insert-duplex") {
+  if (pageSequence.length && sourceInfo && pageSequence.length !== sourceInfo.pageCount) {
+    out.push({ level: "info", text: `ページ組替え適用中: 元PDF ${sourceInfo.pageCount}ページ → 論理 ${pageSequence.length}ページ。` });
+  }
+  if (pageSequence.some(page => page === null)) {
+    out.push({ level: "info", text: `白ページを ${pageSequence.filter(page => page === null).length}ページ含みます。` });
+  }
+  if (sourceInfo) {
+    out.push({ level: "ok", text: `PDF情報: ${sourceInfo.pageCount}ページ / ${sourceInfo.pageSizesSummary} / ${sourceInfo.sizeText} / PDF ${sourceInfo.pdfVersion}` });
+    out.push({ level: "info", text: `カラー検出: ${colorSummary(sourceInfo)}。数値はPDF内部で検出した色空間指定の出現数です。` });
+    if (sourceInfo.color.rgb) out.push({ level: "warn", text: "RGB色空間が含まれています。商業印刷ではCMYK変換条件と色味変化を確認してください。" });
+    if (sourceInfo.color.spot) out.push({ level: "info", text: `特色版を検出しました。Separation ${sourceInfo.color.separation} / DeviceN ${sourceInfo.color.deviceN}。特色名と刷版分版を確認してください。` });
+    if (sourceInfo.color.icc) out.push({ level: "ok", text: `埋め込みICCカラープロファイル参照を検出しました: ${sourceInfo.color.icc}件。` });
+    if (sourceInfo.outputIntent) out.push({ level: "ok", text: `OutputIntentを検出しました${sourceInfo.outputIntentName ? `: ${sourceInfo.outputIntentName}` : "。"}` });
+    if (!sourceInfo.outputIntent && !sourceInfo.color.icc) out.push({ level: "warn", text: "OutputIntentまたはICCプロファイルを検出できません。印刷条件プロファイルの指定を確認してください。" });
+    if (sourceInfo.pdfX) out.push({ level: "ok", text: `PDF/X保存形式を検出しました: ${sourceInfo.pdfX}` });
+    if (sourceInfo.pdfA) out.push({ level: "info", text: `PDF/Aメタデータを検出しました: part ${sourceInfo.pdfA}` });
+    if (sourceInfo.encrypted) out.push({ level: "warn", text: "暗号化PDFの可能性があります。印刷工程で処理できるか確認してください。" });
+    if (sourceInfo.transparency) out.push({ level: "warn", text: "透明効果またはソフトマスクを検出しました。RIP互換性と透明分割設定を確認してください。" });
+    if (sourceInfo.overprint) out.push({ level: "info", text: "オーバープリント設定を検出しました。墨ノセ・特色ノセの意図を確認してください。" });
+    if (!sourceInfo.pageSizesUniform) out.push({ level: "warn", text: "ページサイズが混在しています。仕上りサイズ自動取得後も全ページの寸法差を確認してください。" });
+    if (sourceInfo.images) out.push({ level: "info", text: `画像オブジェクトを検出しました: ${sourceInfo.images}件。解像度の詳細確認は外部プリフライトで確認してください。` });
+    if (sourceInfo.fontsEmbedded) out.push({ level: "ok", text: `埋め込みフォントらしきFontFileを検出しました: ${sourceInfo.fontsEmbedded}件。` });
+    if (!sourceInfo.fontsEmbedded) out.push({ level: "warn", text: "埋め込みフォント情報を検出できません。文字化け防止のためフォント埋め込みを確認してください。" });
+  }
+  if (count && settings.mode.startsWith("signature-") && settings.pagePolicy === "insert-duplex" && count % settings.signatureSize !== 0) {
+    out.push({ level: "warn", text: "折丁多面付けでは差し込み両面の別版出力は未適用です。折丁ページ数に合うよう白ページ追加または台割確認を行ってください。" });
+  } else if (count && (count % 4 === 2 || count % 4 === 1) && settings.mode === "booklet" && settings.pagePolicy === "insert-duplex") {
     const oddNote = count % 4 === 1 ? "奇数ページのため末尾に白ページを1ページ追加し、" : "";
     const sourceLabel = settings.product === "saddle" || settings.insertPageSource === "middle" ? "本文中央の2ページ" : "末尾の2ページ";
     out.push({ level: "info", text: `${oddNote}${sourceLabel}を差し込み両面として別版面に出力します。` });
@@ -593,10 +1113,15 @@ function preflight(settings, count, plan) {
   } else if (count && count % 4 !== 0 && settings.mode === "booklet") {
     out.push({ level: "warn", text: "中綴じは4ページ単位です。白ページ追加、差し込み両面、または台割確認が必要です。" });
   }
+  if (count && settings.mode.startsWith("signature-") && count % settings.signatureSize !== 0 && settings.pagePolicy !== "pad") {
+    out.push({ level: "warn", text: `${settings.signatureSize}P折丁の単位で割り切れません。白ページ追加または別丁構成を確認してください。` });
+  }
   if (fitW > settings.sheetW || fitH > availableH) out.push({ level: "warn", text: "指定した仕上り・ドブ・塗り足しが用紙有効領域を超えています。" });
   if (settings.gripper < 8) out.push({ level: "warn", text: "くわえが8mm未満です。枚葉オフセットでは機械条件を確認してください。" });
   if (settings.bleed < 3) out.push({ level: "warn", text: "塗り足しが3mm未満です。断裁ズレ許容に注意してください。" });
-  if (settings.mode === "booklet" && settings.creep > 0 && settings.product !== "saddle") out.push({ level: "warn", text: "束見込み補正は中綴じで特に有効です。無線綴じでは背側削りと台割を確認してください。" });
+  if (isSignatureMode(settings.mode) && settings.creep > 0 && settings.product !== "saddle") out.push({ level: "warn", text: "束見込み補正は中綴じで特に有効です。無線綴じでは背側削りと台割を確認してください。" });
+  if (settings.spineMarks && settings.product === "saddle") out.push({ level: "warn", text: "背丁・背標は無線綴じ等の丁合管理用です。中綴じでは原則入れません。" });
+  if (settings.spineMarks && settings.product === "flat") out.push({ level: "warn", text: "端物では背が形成されないため、背丁・背標は管理マークとしてのみ扱います。" });
   if (settings.grain === "short" && settings.product !== "flat") out.push({ level: "warn", text: "冊子物で横目指定です。背割れ・開き具合・折り方向を確認してください。" });
   out.push({ level: "info", text: `${plan.length || 0}面の出力予定です。ジョブチケットに針・紙目・両面方式・マーク条件を記録します。` });
   return out;
@@ -613,6 +1138,8 @@ function buildTicket(settings, count, plan, warnings) {
       product: settings.product,
       binding: settings.binding
     },
+    source: sourceInfo,
+    pageSequence: pageSequence.map(page => page || "blank"),
     paper: {
       sheetMm: [settings.sheetW, settings.sheetH],
       orientation: settings.sheetOrientation,
@@ -651,6 +1178,13 @@ function buildTicket(settings, count, plan, warnings) {
       folioHige: settings.folioHige,
       folioColor: settings.folioColor,
       folioCmyk: [settings.folioC, settings.folioM, settings.folioY, settings.folioK],
+      spineMarks: settings.spineMarks,
+      spineTextMode: settings.spineTextMode,
+      spineText: settings.spineText,
+      spineTextSizePt: settings.spineTextSize,
+      spineMarkSizeMm: settings.spineMarkSize,
+      spineMarkStepMm: settings.spineMarkStep,
+      spineMarkShape: settings.spineMarkShape,
       markOffsetMm: settings.markOffset,
       markWeightPt: settings.markWeight
     },
@@ -684,15 +1218,16 @@ async function generatePdf() {
       const boxes = layoutBoxes(settings, imposed).slice(0, imposed.pages.length);
       for (let i = 0; i < boxes.length; i++) {
         const pageNo = imposed.pages[i];
+        const sourcePageNo = sourcePageForLogical(pageNo);
         const b = boxes[i];
         const x = mmToPt(b.x);
         const y = sheetH - mmToPt(b.y + b.h);
-        if (!pageNo) {
+        if (!sourcePageNo) {
           page.drawRectangle({ x, y, width: trimW, height: trimH, borderColor: rgb(.75, .75, .75), borderWidth: .4 });
           page.drawText("Blank", { x: x + 12, y: y + trimH / 2, size: 10, font, color: rgb(.55, .55, .55) });
           continue;
         }
-        const [embedded] = await out.embedPages([src.getPage(pageNo - 1)]);
+        const [embedded] = await out.embedPages([src.getPage(sourcePageNo - 1)]);
         const srcW = embedded.width;
         const srcH = embedded.height;
         const rot = b.forceRotation ?? resolveRotation(settings, srcW, srcH, trimW, trimH);
@@ -715,7 +1250,10 @@ async function generatePdf() {
         if (settings.cropMarks) drawCropMarks(page, x, y, trimW, trimH, settings, b);
         if (settings.printFolios) drawFolio(page, pageNo, x, y, trimW, trimH, settings, folioFont);
       }
-      if (settings.cropMarks && settings.mode === "booklet") {
+      if (settings.spineMarks && isSignatureMode(settings.mode)) {
+        drawSpineControlMarks(page, settings, font, imposed, boxes, sheetH);
+      }
+      if (settings.cropMarks && isSignatureMode(settings.mode)) {
         drawGutterCenterMarks(page, boxes, sheetH, settings);
       }
     }
@@ -837,6 +1375,46 @@ function drawFolio(page, pageNo, x, y, w, h, settings, font) {
   }
 }
 
+function spineLabel(settings, imposed) {
+  const ori = `${imposed.signature || 1}折`;
+  if (settings.spineTextMode === "signature-only") return ori;
+  const base = settings.spineTextMode === "custom" && settings.spineText
+    ? settings.spineText
+    : settings.jobName;
+  return `${base || "Job"} ${ori}`;
+}
+
+function drawSpineControlMarks(page, settings, font, imposed, boxes, sheetH) {
+  if (boxes.length < 2) return;
+  const sorted = [...boxes].sort((a, b) => a.x - b.x);
+  const gutterMm = (sorted[0].x + sorted[0].w + sorted[1].x) / 2;
+  const gutterX = mmToPt(gutterMm);
+  const topY = sheetH - mmToPt(sorted[0].y);
+  const markSize = mmToPt(settings.spineMarkSize || 4);
+  const step = mmToPt(settings.spineMarkStep || 6);
+  const index = Math.max(0, (imposed.signature || 1) - 1);
+  const markY = topY - mmToPt(12) - index * step;
+  const text = asciiSlug(spineLabel(settings, imposed));
+  const textSize = Math.max(3, settings.spineTextSize || 6);
+  const color = markInk(settings);
+
+  if (settings.spineMarkShape === "circle") {
+    page.drawCircle({ x: gutterX, y: markY, size: markSize / 2, color });
+  } else if (settings.spineMarkShape === "bar") {
+    page.drawRectangle({ x: gutterX - markSize / 2, y: markY - markSize * 1.5, width: markSize, height: markSize * 3, color });
+  } else {
+    page.drawRectangle({ x: gutterX - markSize / 2, y: markY - markSize / 2, width: markSize, height: markSize, color });
+  }
+
+  page.drawText(text, {
+    x: gutterX + mmToPt(2),
+    y: markY - textSize / 2,
+    size: textSize,
+    font,
+    color
+  });
+}
+
 function markInk(settings) {
   const { cmyk } = PDFLib;
   return settings.markColor === "black" ? cmyk(0, 0, 0, 1) : cmyk(1, 1, 1, 1);
@@ -862,7 +1440,7 @@ function clampPercent(value) {
 }
 
 function creepOffset(settings, pageNo, pageCount) {
-  if (settings.mode !== "booklet" || !settings.creep) return 0;
+  if (!isSignatureMode(settings.mode) || !settings.creep) return 0;
   const center = (pageCount + 1) / 2;
   const direction = settings.binding === "right" ? -1 : 1;
   return direction * (Math.abs(pageNo - center) / pageCount) * settings.creep;
@@ -1112,6 +1690,7 @@ function wire() {
 
   ids.forEach(id => {
     const el = $(id);
+    if (!el) return;
     el.addEventListener("input", () => {
       persistLastSettings();
       updatePreview();
@@ -1121,11 +1700,43 @@ function wire() {
       updatePreview();
     });
   });
+  $("mode").addEventListener("change", () => {
+    applyModePreset();
+    persistLastSettings();
+    updatePreview();
+  });
   $("impositionPreset").addEventListener("change", applySelectedImpositionPreset);
   $("saveImpositionPreset").addEventListener("click", saveCurrentImpositionPreset);
+  $("updateImpositionPreset").addEventListener("click", updateSelectedImpositionPreset);
+  $("renameImpositionPreset").addEventListener("click", renameSelectedImpositionPreset);
+  $("loadImpositionPresetEditor").addEventListener("click", showSelectedImpositionPreset);
+  $("applyImpositionPresetEditor").addEventListener("click", applyImpositionPresetEditor);
   $("deleteImpositionPreset").addEventListener("click", deleteSelectedImpositionPreset);
   $("saveSheetPreset").addEventListener("click", saveCurrentSheetPreset);
   $("deleteSheetPreset").addEventListener("click", deleteCurrentSheetPreset);
+  $("loadPageSequence").addEventListener("click", renderPageSequenceEditor);
+  $("applyPageSequence").addEventListener("click", applyPageSequenceFromEditor);
+  $("reversePageSequence").addEventListener("click", () => {
+    if (!pageSequence.length && sourcePdf) resetPageSequence(sourcePdf.getPageCount());
+    pageSequence.reverse();
+    renderPageSequenceEditor();
+    previewIndex = 0;
+    updatePreview();
+  });
+  $("appendBlankPage").addEventListener("click", () => {
+    if (!pageSequence.length && sourcePdf) resetPageSequence(sourcePdf.getPageCount());
+    pageSequence.push(null);
+    renderPageSequenceEditor();
+    updatePreview();
+  });
+  $("padPageSequence4").addEventListener("click", () => {
+    if (!pageSequence.length && sourcePdf) resetPageSequence(sourcePdf.getPageCount());
+    padPageSequenceToMultiple(4);
+  });
+  $("previewFirst").addEventListener("click", () => {
+    previewIndex = 0;
+    updatePreview();
+  });
   $("previewPrev").addEventListener("click", () => {
     previewIndex = Math.max(0, previewIndex - 1);
     updatePreview();
@@ -1133,6 +1744,11 @@ function wire() {
   $("previewNext").addEventListener("click", () => {
     const { plan } = currentPlan();
     previewIndex = Math.min(Math.max(plan.length - 1, 0), previewIndex + 1);
+    updatePreview();
+  });
+  $("previewLast").addEventListener("click", () => {
+    const { plan } = currentPlan();
+    previewIndex = Math.max(plan.length - 1, 0);
     updatePreview();
   });
   $("previewPage").addEventListener("change", () => {
@@ -1153,6 +1769,9 @@ function wire() {
       $("fileName").textContent = file.name;
       sourceBytes = await file.arrayBuffer();
       sourcePdf = await PDFLib.PDFDocument.load(sourceBytes);
+      sourceInfo = analyzePdfFile(file, sourcePdf, sourceBytes);
+      renderPdfInfo(sourceInfo);
+      resetPageSequence(sourcePdf.getPageCount());
       const page = sourcePdf.getPage(0);
       $("trimW").value = ptToMm(page.getWidth()).toFixed(1);
       $("trimH").value = ptToMm(page.getHeight()).toFixed(1);
@@ -1162,6 +1781,10 @@ function wire() {
     } catch (error) {
       sourceBytes = null;
       sourcePdf = null;
+      sourceInfo = null;
+      pageSequence = [];
+      renderPdfInfo(null);
+      renderPageSequenceEditor();
       $("makePdf").disabled = true;
       setStatus(`PDF読込に失敗しました: ${error.message || error}`, "error");
     }

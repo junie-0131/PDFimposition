@@ -25,10 +25,12 @@
           <input id="pdfFile" type="file" accept="application/pdf">
           <span>PDFを選択</span>
           <strong id="fileName">未選択</strong>
+          <div class="pdf-info" id="pdfInfo">PDF情報は読み込み後に表示します。</div>
         </label>
 
         <div class="tabs" role="tablist" aria-label="設定カテゴリ">
           <button class="tab active" data-tab="job">仕事</button>
+          <button class="tab" data-tab="pages">ページ</button>
           <button class="tab" data-tab="paper">用紙</button>
           <button class="tab" data-tab="impose">面付</button>
           <button class="tab" data-tab="marks">印刷</button>
@@ -52,6 +54,18 @@
               <div class="mini-actions">
                 <button id="saveImpositionPreset" type="button">現在の面付設定を保存</button>
                 <button id="deleteImpositionPreset" type="button">選択設定を削除</button>
+              </div>
+            </div>
+            <div class="field preset-manager">
+              <label>プリセット管理</label>
+              <div class="mini-actions">
+                <button id="updateImpositionPreset" type="button">選択設定を現在値で更新</button>
+                <button id="renameImpositionPreset" type="button">名前を変更</button>
+              </div>
+              <textarea id="impositionPresetEditor" rows="8" spellcheck="false" placeholder="選択したプリセットの設定JSONを表示します"></textarea>
+              <div class="mini-actions">
+                <button id="loadImpositionPresetEditor" type="button">設定内容を表示</button>
+                <button id="applyImpositionPresetEditor" type="button">JSONから更新</button>
               </div>
             </div>
             <div class="field two">
@@ -90,21 +104,67 @@
             </div>
           </div>
 
+          <div class="tabpane" data-pane="pages">
+            <div class="field">
+              <label>ページ組替えリスト</label>
+              <textarea id="pageSequenceEditor" rows="8" spellcheck="false" placeholder="例: 1,2,3,B,4&#10;B は白ページ"></textarea>
+            </div>
+            <div class="mini-actions">
+              <button id="loadPageSequence" type="button">現在のページ順を表示</button>
+              <button id="applyPageSequence" type="button">ページ順を適用</button>
+            </div>
+            <div class="mini-actions">
+              <button id="reversePageSequence" type="button">逆順</button>
+              <button id="appendBlankPage" type="button">末尾に白ページ</button>
+              <button id="padPageSequence4" type="button">4の倍数へ補正</button>
+            </div>
+            <div class="field">
+              <label>ページ組替えメモ</label>
+              <p class="hint">数字は元PDFのページ番号、Bは白ページです。ここで組み替えた順番を、面付け計算とPDF生成に使用します。</p>
+            </div>
+          </div>
+
           <div class="tabpane" data-pane="paper">
             <div class="field">
               <label for="sheetPreset">刷版・紙取り寸法</label>
               <select id="sheetPreset">
                 <option value="636x939">菊全判 636 x 939</option>
                 <option value="469x636">菊半裁 469 x 636</option>
+                <option value="318x469">菊四裁 318 x 469</option>
+                <option value="234x318">菊八裁 234 x 318</option>
                 <option value="788x1091">四六全判 788 x 1091</option>
                 <option value="545x788">四六半裁 545 x 788</option>
+                <option value="394x545">四六四裁 394 x 545</option>
+                <option value="272x394">四六八裁 272 x 394</option>
                 <option value="625x880">A列本判 625 x 880</option>
+                <option value="440x625">A列半裁 440 x 625</option>
+                <option value="312x440">A列四裁 312 x 440</option>
+                <option value="220x312">A列八裁 220 x 312</option>
                 <option value="765x1085">B列本判 765 x 1085</option>
-                <option value="450x625">A列半裁 450 x 625</option>
                 <option value="542x765">B列半裁 542 x 765</option>
+                <option value="382x542">B列四裁 382 x 542</option>
+                <option value="271x382">B列八裁 271 x 382</option>
+                <option value="900x1200">ハトロン判 900 x 1200</option>
+                <option value="600x900">ハトロン半裁 600 x 900</option>
+                <option value="530x770">L判 530 x 770</option>
+                <option value="650x950">K判 650 x 950</option>
+                <option value="800x1030">四六倍判系 800 x 1030</option>
+                <option value="720x1020">菊倍判系 720 x 1020</option>
+                <option value="1030x1456">B倍判 1030 x 1456</option>
+                <option value="841x1189">A0 841 x 1189</option>
+                <option value="594x841">A1 594 x 841</option>
+                <option value="420x594">A2 420 x 594</option>
+                <option value="297x420">A3 297 x 420</option>
+                <option value="450x625">A列半裁 450 x 625</option>
                 <option value="320x450">A3ノビ 320 x 450</option>
                 <option value="364x515">B3 364 x 515</option>
-                <option value="custom">カスタム</option>
+                <option value="329x483">菊四裁相当 329 x 483</option>
+                <option value="488x650">デジタル印刷 488 x 650</option>
+                <option value="330x488">デジタル印刷 330 x 488</option>
+                <option value="320x464">SRA3 320 x 464</option>
+                <option value="305x457">12 x 18 inch 305 x 457</option>
+                <option value="330x482">13 x 19 inch 330 x 482</option>
+                <option value="custom">任意の用紙サイズ</option>
               </select>
             </div>
             <div class="field">
@@ -119,9 +179,9 @@
               <label>紙高 mm<input id="sheetH" type="number" value="939" step="0.1"></label>
             </div>
             <div class="field preset-save">
-              <label>マスタ用紙サイズ名<input id="sheetPresetName" placeholder="例: 自社CTP 1030x800"></label>
+              <label>任意の用紙サイズ名<input id="sheetPresetName" placeholder="例: 自社CTP 1030x800"></label>
               <div class="mini-actions">
-                <button id="saveSheetPreset" type="button">現在の用紙をプリセット保存</button>
+                <button id="saveSheetPreset" type="button">任意サイズをプリセット保存</button>
                 <button id="deleteSheetPreset" type="button">選択プリセットを削除</button>
               </div>
             </div>
@@ -150,7 +210,17 @@
               <label>方式
                 <select id="mode">
                   <option value="booklet">折丁 2面付け</option>
+                  <option value="signature-4">折丁 4P 2面付け</option>
+                  <option value="signature-8">折丁 8P 4面付け</option>
+                  <option value="signature-12">折丁 12P 6面付け</option>
+                  <option value="signature-16">折丁 16P 8面付け</option>
+                  <option value="signature-24">折丁 24P 12面付け</option>
+                  <option value="signature-32">折丁 32P 16面付け</option>
+                  <option value="signature-custom">折丁 カスタム面付け</option>
                   <option value="nup">端物 多面付け</option>
+                  <option value="nup-repeat">端物 同一面反復</option>
+                  <option value="nup-cut-stack">端物 丁合断裁</option>
+                  <option value="nup-work-sheet">端物 表裏別版</option>
                 </select>
               </label>
               <label>両面
@@ -175,7 +245,9 @@
                 <select id="signatureSize">
                   <option value="4">4P</option>
                   <option value="8">8P</option>
+                  <option value="12">12P</option>
                   <option value="16" selected>16P</option>
+                  <option value="24">24P</option>
                   <option value="32">32P</option>
                 </select>
               </label>
@@ -254,6 +326,31 @@
             <div class="checks">
               <label><input id="printFolios" type="checkbox"> ノンブルを出力</label>
               <label><input id="folioHige" type="checkbox" checked> ヒゲを付ける</label>
+              <label><input id="spineMarks" type="checkbox"> 背丁・背標を入れる</label>
+            </div>
+            <div class="field two">
+              <label>背丁
+                <select id="spineTextMode">
+                  <option value="job-signature">ジョブ名 + 折り名</option>
+                  <option value="signature-only">折り名のみ</option>
+                  <option value="custom">任意文字 + 折り名</option>
+                </select>
+              </label>
+              <label>任意文字<input id="spineText" placeholder="例: 品名・巻数"></label>
+            </div>
+            <div class="field two">
+              <label>背丁サイズ pt<input id="spineTextSize" type="number" value="6" min="3" max="18" step="0.5"></label>
+              <label>背標サイズ mm<input id="spineMarkSize" type="number" value="4" min="1" max="12" step="0.5"></label>
+            </div>
+            <div class="field two">
+              <label>背標ピッチ mm<input id="spineMarkStep" type="number" value="6" min="1" max="20" step="0.5"></label>
+              <label>背標形状
+                <select id="spineMarkShape">
+                  <option value="square">四角</option>
+                  <option value="circle">丸</option>
+                  <option value="bar">バー</option>
+                </select>
+              </label>
             </div>
             <div class="field two">
               <label>ノンブルサイズ pt<input id="folioSize" type="number" value="6" min="3" max="24" step="0.5"></label>
@@ -312,10 +409,12 @@
             <p id="summary">PDFを選択すると台割と刷り本の概要を表示します。</p>
           </div>
           <div class="preview-controls" aria-label="版面プレビュー切替">
+            <button id="previewFirst" type="button">|&lt;&lt;</button>
             <button id="previewPrev" type="button">前</button>
             <label><span>版面</span><input id="previewPage" type="number" value="1" min="1"></label>
             <span id="previewTotal">/ 1</span>
             <button id="previewNext" type="button">次</button>
+            <button id="previewLast" type="button">&gt;&gt;|</button>
           </div>
           <div class="badges" id="badges"></div>
         </div>
@@ -325,6 +424,10 @@
         <section class="report">
           <h2>プリフライト</h2>
           <ul id="preflight"></ul>
+        </section>
+        <section class="report">
+          <h2>台割リスト</h2>
+          <div id="impositionPlan" class="plan-list"></div>
         </section>
       </section>
     </section>
