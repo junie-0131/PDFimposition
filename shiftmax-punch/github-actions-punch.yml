@@ -1,0 +1,47 @@
+# これは shiftmax-punch リポジトリの .github/workflows/punch.yml に置く内容の控え。
+# PDFimposition 側で誤って実行されないよう、あえて .github/workflows には置いていない。
+# そのまま全文コピーして使える。
+
+name: ShiftMax punch
+
+# 出発・上番のみを担当する。下番は Claude のルーチン（通知＋猶予つき）が担当。
+# GitHub の定期実行は数分〜十数分ずれることがあるため、許容範囲の前後で複数回試す。
+# punch.mjs は「対象行が無い / 範囲外 / 打刻済み」なら何もしないので、何度動いても安全。
+on:
+  schedule:
+    - cron: '32,47 21 * * *'          # 06:32, 06:47 JST … A出発(08:30) 範囲 06:30-07:29
+    - cron: '2,17 22 * * *'           # 07:02, 07:17 JST … A出発 つづき
+    - cron: '7,16,19,22,25 23 * * *'  # 08:07-08:25 JST … A上番(08:30) 範囲 08:15-08:29
+    - cron: '37,46,49,52,55 4 * * *'  # 13:37-13:55 JST … B出発(15:00) 範囲 13:45-13:59
+    - cron: '37,46,49,52,55 5 * * *'  # 14:37-14:55 JST … B上番(15:00) 範囲 14:45-14:59
+  workflow_dispatch:                  # 手動テスト用
+
+jobs:
+  punch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'          # shift_jis のデコードに full-icu が必要
+
+      - name: 出発・上番を打刻（該当する時間帯のものだけ押される）
+        env:
+          SHIFTMAX_URL: ${{ secrets.SHIFTMAX_URL }}
+        run: |
+          fail=0
+          try() {
+            echo "--- $1 $2 (許容 $3) ---"
+            out=$(node punch.mjs --action "$1" --expect "$2" --window "$3" 2>&1) || true
+            echo "$out"
+            case "$out" in
+              *RESULT:SUCCESS*|*RESULT:SKIP_NO_MATCH*|*RESULT:SKIP_OUT_OF_WINDOW*) ;;
+              *) fail=1 ;;   # ERROR / SESSION_EXPIRED / UNCERTAIN はジョブを失敗させ、GitHub からメールを飛ばす
+            esac
+          }
+          try 出発 08:30 06:30-07:29
+          try 上番 08:30 08:15-08:29
+          try 出発 15:00 13:45-13:59
+          try 上番 15:00 14:45-14:59
+          exit $fail
