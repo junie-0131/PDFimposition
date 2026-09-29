@@ -43,6 +43,12 @@ jobs:
             curl -sS -m 20 -X POST https://ntfy.sh -H 'Content-Type: application/json' -d "$body" >/dev/null || true
           }
 
+          # 手動実行（Run workflow）のときだけテスト通知を送る。
+          # GitHub → ntfy → スマホ の経路がつながっているかを、打刻を待たずに確認するため。
+          if [ "${GITHUB_EVENT_NAME:-}" = "workflow_dispatch" ]; then
+            push "🔔 テスト通知：この通知が届いていれば、打刻時の通知も届きます。" 4 bell
+          fi
+
           try() {   # $1=区分 $2=表示時刻 $3=許容範囲
             echo "--- $1 $2 (許容 $3) ---"
             out=$(node punch.mjs --action "$1" --expect "$2" --window "$3" 2>&1) || true
