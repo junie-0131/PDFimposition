@@ -29,17 +29,40 @@ jobs:
       - name: 出発・上番を打刻（該当する時間帯のものだけ押される）
         env:
           SHIFTMAX_URL: ${{ secrets.SHIFTMAX_URL }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
         run: |
           fail=0
-          try() {
+
+          # スマホへプッシュ通知（ntfy）。日本語を確実に送るため JSON で投げる。
+          # 通知に失敗しても打刻の成否には影響させない。
+          push() {   # $1=本文 $2=優先度 $3=アイコン
+            [ -n "${NTFY_TOPIC:-}" ] || return 0
+            body=$(jq -nc --arg topic "$NTFY_TOPIC" --arg message "$1" \
+                          --argjson priority "$2" --arg tag "$3" \
+                          '{topic:$topic,title:"ShiftMax 勤怠",message:$message,priority:$priority,tags:[$tag]}')
+            curl -sS -m 20 -X POST https://ntfy.sh -H 'Content-Type: application/json' -d "$body" >/dev/null || true
+          }
+
+          try() {   # $1=区分 $2=表示時刻 $3=許容範囲
             echo "--- $1 $2 (許容 $3) ---"
             out=$(node punch.mjs --action "$1" --expect "$2" --window "$3" 2>&1) || true
             echo "$out"
+            msg=$(printf '%s\n' "$out" | sed -n 's/^MESSAGE://p')
             case "$out" in
-              *RESULT:SUCCESS*|*RESULT:SKIP_NO_MATCH*|*RESULT:SKIP_OUT_OF_WINDOW*) ;;
-              *) fail=1 ;;   # ERROR / SESSION_EXPIRED / UNCERTAIN はジョブを失敗させ、GitHub からメールを飛ばす
+              *RESULT:SUCCESS*)
+                push "✅ $1 を打刻しました｜$msg" 4 white_check_mark
+                ;;
+              *RESULT:SKIP_NO_MATCH*|*RESULT:SKIP_OUT_OF_WINDOW*)
+                # 対象なし（休み・別パターン・打刻済み）／まだ時間前。通常運転なので通知しない。
+                ;;
+              *)
+                # ERROR / SESSION_EXPIRED / UNCERTAIN → 通知したうえでジョブを失敗させる
+                push "⚠️ $1 を打刻できませんでした。手動で対応してください｜$msg" 5 warning
+                fail=1
+                ;;
             esac
           }
+
           try 出発 08:30 06:30-07:29
           try 上番 08:30 08:15-08:29
           try 出発 15:00 13:45-13:59
